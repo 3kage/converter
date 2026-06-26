@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import os
 import re
-import sys
+import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .ffmpeg_utils import run_ffmpeg, run_ffprobe
+from .filters import build_video_filters, join_filters
 from .hardware import pick_hardware_encoder
 from .presets import QUALITY_PRESETS, QualityPreset, apply_quality_preset
 
@@ -28,6 +30,8 @@ OUTPUT_PRESETS: dict[str, dict[str, str | list[str]]] = {
     "aac": {"vcodec": "", "acodec": "aac", "extra": []},
     "wav": {"vcodec": "", "acodec": "pcm_s16le", "extra": []},
 }
+
+SUBTITLE_EXTENSIONS = {".srt", ".ass", ".vtt", ".ssa"}
 
 
 @dataclass
@@ -51,6 +55,7 @@ class ConvertOptions:
     start_time: str | None = None
     end_time: str | None = None
     hardware_encode: bool = False
+    prefer_hevc: bool = False
     extract_audio: bool = False
     extract_subtitles: bool = False
     external_audio_path: Path | None = None
@@ -59,8 +64,16 @@ class ConvertOptions:
     gif_mode: bool = False
     metadata_title: str | None = None
     metadata_author: str | None = None
+    metadata_date: str | None = None
     strip_metadata: bool = False
     verify_output: bool = True
+    merge_inputs: list[Path] = field(default_factory=list)
+    crop: str | None = None
+    rotation: int | None = None
+    fps: str | None = None
+    watermark_path: Path | None = None
+    watermark_position: str = "10:10"
+    two_pass: bool = False
 
 
 def list_supported_formats() -> list[str]:
@@ -72,8 +85,7 @@ def list_audio_formats() -> list[str]:
 
 
 def _guess_format(path: Path) -> str:
-    ext = path.suffix.lower().lstrip(".")
-    return ext or "mp4"
+    return path.suffix.lower().lstrip(".") or "mp4"
 
 
 def _resolve_output_path(options: ConvertOptions) -> Path:
@@ -84,6 +96,8 @@ def _resolve_output_path(options: ConvertOptions) -> Path:
         fmt = options.output_format or "mp3"
     if options.gif_mode:
         fmt = "gif"
+    if options.extract_subtitles:
+        return options.input_path.with_name(f"{options.input_path.stem}.srt")
     return options.input_path.with_name(f"{options.input_path.stem}_converted.{fmt}")
 
 
@@ -106,7 +120,7 @@ def _apply_quality_preset(options: ConvertOptions) -> ConvertOptions:
         updates["output_format"] = preset.format
     if not updates:
         return options
-    return ConvertOptions(**{**options.__dict__, **updates})
+    return replace(options, **updates)
 
 
 def _parse_time(value: str | None) -> str | None:
@@ -120,35 +134,54 @@ def _parse_time(value: str | None) -> str | None:
     raise ValueError(f"Невірний формат часу: {value}. Використовуйте HH:MM:SS або секунди.")
 
 
-def build_ffmpeg_args(options: ConvertOptions) -> list[str]:
+def _input_index(extra_audio: bool, extra_sub: bool, extra_wm: bool) -> dict[str, int]:
+    idx = 1
+    mapping = {"audio": 0, "sub": 0, "wm": 0}
+    if extra_audio:
+        mapping["audio"] = idx
+        idx += 1
+    if extra_sub:
+        mapping["sub"] = idx
+        idx += 1
+    if extra_wm:
+        mapping["wm"] = idx
+    return mapping
+
+
+def build_ffmpeg_args(options: ConvertOptions, *, pass_number: int | None = None) -> list[str]:
     options = _apply_quality_preset(options)
-    input_path = options.input_path.resolve()
     output_path = _resolve_output_path(options).resolve()
     output_format = _guess_format(output_path)
 
-    if output_path.exists() and not options.overwrite:
+    if output_path.exists() and not options.overwrite and pass_number != 1:
         raise FileExistsError(f"Вихідний файл уже існує: {output_path}")
 
     args: list[str] = ["-y" if options.overwrite else "-n"]
     start = _parse_time(options.start_time)
     end = _parse_time(options.end_time)
-
     if start:
         args.extend(["-ss", start])
 
-    args.extend(["-i", str(input_path)])
+    video_inputs = [options.input_path.resolve(), *[p.resolve() for p in options.merge_inputs]]
+    for path in video_inputs:
+        args.extend(["-i", str(path)])
 
-    if options.external_audio_path:
+    extra_audio = options.external_audio_path is not None
+    extra_sub = options.subtitle_path is not None and not options.extract_subtitles
+    extra_wm = options.watermark_path is not None and not options.gif_mode
+
+    if extra_audio:
         args.extend(["-i", str(options.external_audio_path.resolve())])
-
-    if options.subtitle_path and not options.extract_subtitles:
+    if extra_sub:
         args.extend(["-i", str(options.subtitle_path.resolve())])
+    if extra_wm:
+        args.extend(["-i", str(options.watermark_path.resolve())])
 
     if end:
         args.extend(["-to", end])
 
     if options.extract_audio:
-        args.extend(["-vn"])
+        args.extend(["-vn", "-map", f"0:a:{options.audio_stream or 0}"])
         fmt = output_format if output_format in list_audio_formats() else "mp3"
         acodec = OUTPUT_PRESETS.get(fmt, OUTPUT_PRESETS["mp3"])["acodec"]
         if acodec:
@@ -161,16 +194,27 @@ def build_ffmpeg_args(options: ConvertOptions) -> list[str]:
         return args
 
     if options.extract_subtitles:
-        args.extend(["-map", "0:s:0", "-c:s", "srt", str(output_path.with_suffix(".srt"))])
+        args.extend(["-map", f"0:s:{options.video_stream or 0}", "-c:s", "srt"])
+        args.append(str(output_path))
         return args
 
-    if options.copy_streams and not any([options.scale, options.external_audio_path, options.subtitle_path, options.gif_mode]):
-        if options.video_stream is not None:
-            args.extend(["-map", f"0:v:{options.video_stream}"])
-        else:
-            args.extend(["-map", "0:v:0"])
-        if options.external_audio_path:
-            args.extend(["-map", "1:a:0"])
+    idx_map = _input_index(extra_audio, extra_sub, extra_wm)
+    merge_count = len(video_inputs)
+    vf_parts = build_video_filters(
+        scale=options.scale,
+        crop=options.crop,
+        rotation=options.rotation,
+        fps=options.fps,
+        gif_mode=options.gif_mode,
+    )
+    vf_chain = join_filters(vf_parts)
+    use_complex = merge_count > 1 or extra_wm or vf_chain
+
+    if options.copy_streams and not use_complex:
+        v_idx = options.video_stream if options.video_stream is not None else 0
+        args.extend(["-map", f"0:v:{v_idx}"])
+        if extra_audio:
+            args.extend(["-map", f"{idx_map['audio']}:a:0"])
         elif options.audio_stream is not None:
             args.extend(["-map", f"0:a:{options.audio_stream}"])
         else:
@@ -179,20 +223,52 @@ def build_ffmpeg_args(options: ConvertOptions) -> list[str]:
         args.append(str(output_path))
         return args
 
-    if options.video_stream is not None:
-        args.extend(["-map", f"0:v:{options.video_stream}"])
-    else:
-        args.extend(["-map", "0:v:0"])
+    if use_complex:
+        filters: list[str] = []
+        if merge_count > 1:
+            streams = "".join(f"[{i}:v:0][{i}:a:0]" for i in range(merge_count))
+            filters.append(f"{streams}concat=n={merge_count}:v=1:a=1[v0][a0]")
+            vsrc, asrc = "[v0]", "[a0]"
+        else:
+            vsrc, asrc = "[0:v:0]", "[0:a:0]"
 
-    if options.external_audio_path:
-        args.extend(["-map", "1:a:0"])
-    elif options.audio_stream is not None:
-        args.extend(["-map", f"0:a:{options.audio_stream}"])
-    else:
-        args.extend(["-map", "0:a?"])
+        if vf_chain:
+            filters.append(f"{vsrc}{vf_chain}[v1]")
+            vsrc = "[v1]"
 
-    if options.subtitle_path:
-        args.extend(["-map", "2:s:0", "-c:s", "mov_text" if output_format in {"mp4", "mov", "m4v"} else "srt"])
+        if extra_wm:
+            wm_i = idx_map["wm"]
+            pos = options.watermark_position
+            filters.append(f"{vsrc}[{wm_i}:v:0]overlay={pos}[vout]")
+            vsrc = "[vout]"
+
+        filters.append(f"{vsrc}null[vfinal]")
+        filter_str = ";".join(filters)
+        args.extend(["-filter_complex", filter_str, "-map", "[vfinal]"])
+        if merge_count > 1:
+            args.extend(["-map", "[a0]"])
+        elif extra_audio:
+            args.extend(["-map", f"{idx_map['audio']}:a:0"])
+        elif options.audio_stream is not None:
+            args.extend(["-map", f"0:a:{options.audio_stream}"])
+        else:
+            args.extend(["-map", "0:a?"])
+    else:
+        v_idx = options.video_stream if options.video_stream is not None else 0
+        args.extend(["-map", f"0:v:{v_idx}"])
+        if extra_audio:
+            args.extend(["-map", f"{idx_map['audio']}:a:0"])
+        elif options.audio_stream is not None:
+            args.extend(["-map", f"0:a:{options.audio_stream}"])
+        else:
+            args.extend(["-map", "0:a?"])
+        if vf_chain:
+            args.extend(["-vf", vf_chain])
+
+    if extra_sub:
+        sub_i = idx_map["sub"]
+        sub_codec = "mov_text" if output_format in {"mp4", "mov", "m4v"} else "srt"
+        args.extend(["-map", f"{sub_i}:s:0", "-c:s", sub_codec])
 
     container = OUTPUT_PRESETS.get(output_format, OUTPUT_PRESETS["mp4"])
     vcodec = options.video_codec or str(container["vcodec"])
@@ -200,7 +276,7 @@ def build_ffmpeg_args(options: ConvertOptions) -> list[str]:
     extra = list(container.get("extra") or [])
 
     if options.hardware_encode and not options.gif_mode:
-        hw = pick_hardware_encoder()
+        hw = pick_hardware_encoder(prefer_hevc=options.prefer_hevc)
         if hw:
             vcodec = hw
 
@@ -208,24 +284,22 @@ def build_ffmpeg_args(options: ConvertOptions) -> list[str]:
         vcodec = "gif"
         acodec = ""
 
-    filters: list[str] = []
-    if options.scale:
-        filters.append(f"scale={options.scale}")
-    if options.gif_mode:
-        filters.append("fps=12,scale=480:-1:flags=lanczos")
-    if filters:
-        args.extend(["-vf", ",".join(filters)])
-
     if vcodec:
         args.extend(["-c:v", vcodec])
     if acodec:
         args.extend(["-c:a", acodec])
 
-    if options.crf is not None and vcodec not in ("copy", "gif") and "videotoolbox" not in vcodec and "nvenc" not in vcodec:
+    if pass_number == 1:
+        args.extend(["-pass", "1", "-an", "-f", "null", "-passlogfile", str(output_path.with_suffix(""))])
+        args.append(os.devnull)
+        return args
+
+    if pass_number == 2:
+        args.extend(["-pass", "2", "-passlogfile", str(output_path.with_suffix(""))])
+
+    if options.crf is not None and vcodec not in ("copy", "gif") and "nvenc" not in vcodec and "videotoolbox" not in vcodec:
         args.extend(["-crf", str(options.crf)])
     elif options.video_bitrate and vcodec:
-        args.extend(["-b:v", options.video_bitrate])
-    elif options.video_bitrate and "videotoolbox" in vcodec:
         args.extend(["-b:v", options.video_bitrate])
 
     if options.audio_bitrate and acodec:
@@ -244,6 +318,8 @@ def build_ffmpeg_args(options: ConvertOptions) -> list[str]:
             args.extend(["-metadata", f"title={options.metadata_title}"])
         if options.metadata_author:
             args.extend(["-metadata", f"author={options.metadata_author}"])
+        if options.metadata_date:
+            args.extend(["-metadata", f"date={options.metadata_date}"])
 
     args.extend(extra)
     args.append(str(output_path))
@@ -251,7 +327,7 @@ def build_ffmpeg_args(options: ConvertOptions) -> list[str]:
 
 
 def verify_output(output_path: Path) -> None:
-    if output_path.suffix.lower() == ".srt":
+    if output_path.suffix.lower() in {".srt", ".ass", ".vtt"}:
         if not output_path.is_file() or output_path.stat().st_size == 0:
             raise RuntimeError(f"Субтитри не створено: {output_path}")
         return
@@ -273,21 +349,27 @@ def convert_video(
         duration_sec = float(probe_data.get("format", {}).get("duration") or 0) or None
     except (TypeError, ValueError):
         duration_sec = None
-
-    if options.start_time or options.end_time:
+    if options.start_time or options.end_time or options.merge_inputs:
         duration_sec = None
 
-    args = build_ffmpeg_args(options)
+    if options.two_pass and options.crf is not None and not options.dry_run:
+        pass1 = build_ffmpeg_args(options, pass_number=1)
+        run_ffmpeg(pass1, dry_run=False, cancel_check=cancel_check)
+        args = build_ffmpeg_args(options, pass_number=2)
+    else:
+        args = build_ffmpeg_args(options)
+
+    if options.dry_run:
+        return _resolve_output_path(options), args
+
     run_ffmpeg(
         args,
-        dry_run=options.dry_run,
+        dry_run=False,
         duration_sec=duration_sec,
         on_progress=on_progress,
         cancel_check=cancel_check,
     )
     output_path = _resolve_output_path(options)
-    if options.extract_subtitles:
-        output_path = output_path.with_suffix(".srt")
-    if options.verify_output and not options.dry_run:
+    if options.verify_output:
         verify_output(output_path)
     return output_path, args

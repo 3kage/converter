@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .batch import build_batch_items, run_batch
 from .convert import ConvertOptions, convert_video, list_supported_formats
 from .presets import list_quality_presets
 from .ffmpeg_utils import FFmpegNotFoundError
@@ -132,9 +133,27 @@ def _build_parser() -> argparse.ArgumentParser:
     convert_parser.add_argument("--strip-metadata", action="store_true")
     convert_parser.add_argument("--metadata-title", default=None)
     convert_parser.add_argument("--metadata-author", default=None)
+    convert_parser.add_argument("--metadata-date", default=None)
+    convert_parser.add_argument("--hevc", dest="prefer_hevc", action="store_true")
+    convert_parser.add_argument("--crop", default=None, help="crop=w:h:x:y")
+    convert_parser.add_argument("--rotation", type=int, choices=[90, 180, 270], default=None)
+    convert_parser.add_argument("--fps", default=None)
+    convert_parser.add_argument("--watermark", type=Path, default=None)
+    convert_parser.add_argument("--watermark-pos", default="10:10")
+    convert_parser.add_argument("--two-pass", action="store_true")
+    convert_parser.add_argument("--merge", nargs="*", type=Path, default=None, help="Додаткові файли для склейки")
     convert_parser.add_argument("--no-verify", action="store_true")
     convert_parser.add_argument("--show-info", action="store_true", help="Показати інформацію про файл")
     convert_parser.set_defaults(func=cmd_convert)
+
+    batch_parser = subparsers.add_parser("batch", help="Пакетна конвертація файлів")
+    batch_parser.add_argument("inputs", nargs="+", type=Path, help="Вхідні файли")
+    batch_parser.add_argument("-o", "--output-dir", type=Path, default=None)
+    batch_parser.add_argument("-f", "--format", dest="output_format", default="mp4")
+    batch_parser.add_argument("--quality-preset", choices=list_quality_presets(), default=None)
+    batch_parser.add_argument("--overwrite", action="store_true")
+    batch_parser.add_argument("--hw", dest="hardware_encode", action="store_true")
+    batch_parser.set_defaults(func=cmd_batch)
 
     formats_parser = subparsers.add_parser(
         "formats",
@@ -186,43 +205,57 @@ def cmd_info(args: argparse.Namespace) -> int:
     return 0
 
 
+def _options_from_args(args: argparse.Namespace, input_path: Path, output_path: Path | None = None) -> ConvertOptions:
+    merge = list(args.merge) if getattr(args, "merge", None) else []
+    return ConvertOptions(
+        input_path=input_path,
+        output_path=output_path or getattr(args, "output", None),
+        output_format=getattr(args, "output_format", "mp4"),
+        video_codec=getattr(args, "video_codec", None),
+        audio_codec=getattr(args, "audio_codec", None),
+        video_bitrate=getattr(args, "video_bitrate", None),
+        audio_bitrate=getattr(args, "audio_bitrate", None),
+        crf=None if getattr(args, "copy", False) else getattr(args, "crf", 23),
+        preset=getattr(args, "preset", "medium"),
+        audio_stream=getattr(args, "audio_stream", None),
+        video_stream=getattr(args, "video_stream", None),
+        copy_streams=getattr(args, "copy", False),
+        overwrite=getattr(args, "overwrite", False),
+        dry_run=getattr(args, "dry_run", False),
+        quality_preset_id=getattr(args, "quality_preset", None),
+        scale=getattr(args, "scale", None),
+        start_time=getattr(args, "start_time", None),
+        end_time=getattr(args, "end_time", None),
+        hardware_encode=getattr(args, "hardware_encode", False),
+        prefer_hevc=getattr(args, "prefer_hevc", False),
+        extract_audio=getattr(args, "extract_audio", False),
+        extract_subtitles=getattr(args, "extract_subtitles", False),
+        external_audio_path=getattr(args, "external_audio", None),
+        subtitle_path=getattr(args, "subtitle", None),
+        normalize_audio=getattr(args, "normalize_audio", False),
+        gif_mode=getattr(args, "gif_mode", False),
+        metadata_title=getattr(args, "metadata_title", None),
+        metadata_author=getattr(args, "metadata_author", None),
+        metadata_date=getattr(args, "metadata_date", None),
+        strip_metadata=getattr(args, "strip_metadata", False),
+        verify_output=not getattr(args, "no_verify", False),
+        merge_inputs=merge or [],
+        crop=getattr(args, "crop", None),
+        rotation=getattr(args, "rotation", None),
+        fps=getattr(args, "fps", None),
+        watermark_path=getattr(args, "watermark", None),
+        watermark_position=getattr(args, "watermark_pos", "10:10"),
+        two_pass=getattr(args, "two_pass", False),
+    )
+
+
 def cmd_convert(args: argparse.Namespace) -> int:
     if args.show_info:
         info = analyze_file(args.input)
         print(render_media_info(info))
         print()
 
-    options = ConvertOptions(
-        input_path=args.input,
-        output_path=args.output,
-        output_format=args.output_format,
-        video_codec=args.video_codec,
-        audio_codec=args.audio_codec,
-        video_bitrate=args.video_bitrate,
-        audio_bitrate=args.audio_bitrate,
-        crf=None if args.copy else args.crf,
-        preset=args.preset,
-        audio_stream=args.audio_stream,
-        video_stream=args.video_stream,
-        copy_streams=args.copy,
-        overwrite=args.overwrite,
-        dry_run=args.dry_run,
-        quality_preset_id=args.quality_preset,
-        scale=args.scale,
-        start_time=args.start_time,
-        end_time=args.end_time,
-        hardware_encode=args.hardware_encode,
-        extract_audio=args.extract_audio,
-        extract_subtitles=args.extract_subtitles,
-        external_audio_path=args.external_audio,
-        subtitle_path=args.subtitle,
-        normalize_audio=args.normalize_audio,
-        gif_mode=args.gif_mode,
-        metadata_title=args.metadata_title,
-        metadata_author=args.metadata_author,
-        strip_metadata=args.strip_metadata,
-        verify_output=not args.no_verify,
-    )
+    options = _options_from_args(args, args.input)
 
     output_path, cmd = convert_video(options)
 
@@ -233,6 +266,17 @@ def cmd_convert(args: argparse.Namespace) -> int:
         return 0
 
     print(f"Готово: {output_path}")
+    return 0
+
+
+def cmd_batch(args: argparse.Namespace) -> int:
+    out_dir = args.output_dir
+    items = build_batch_items(args.inputs, output_dir=out_dir, output_format=args.output_format)
+    base = _options_from_args(args, items[0].input_path, items[0].output_path)
+    results = run_batch(items, base)
+    for output_path, _ in results:
+        print(output_path)
+    print(f"Готово: {len(results)} файлів")
     return 0
 
 

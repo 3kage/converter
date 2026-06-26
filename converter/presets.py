@@ -34,6 +34,12 @@ QUALITY_PRESETS: dict[str, QualityPreset] = {
     "min_size": QualityPreset(
         id="min_size", crf=32, preset="veryfast", video_bitrate="1M", audio_bitrate="96k", scale="854:480"
     ),
+    "iphone": QualityPreset(
+        id="iphone", crf=20, preset="medium", video_bitrate="5M", audio_bitrate="160k", scale="1920:1080", format="mp4"
+    ),
+    "tv": QualityPreset(
+        id="tv", crf=18, preset="slow", video_bitrate="12M", audio_bitrate="192k", scale="1920:1080", format="mp4"
+    ),
 }
 
 

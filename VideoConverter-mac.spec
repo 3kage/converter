@@ -24,6 +24,8 @@ a = Analysis(
         'converter.compare',
         'converter.updater',
         'converter.dnd',
+        'converter.filters',
+        'converter.streams',
     ],
     hookspath=[],
     hooksconfig={},

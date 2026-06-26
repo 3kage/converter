@@ -1,0 +1,34 @@
+name: Build Linux App
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "converter/**"
+      - "build-linux.sh"
+      - "VideoConverter-linux.spec"
+      - ".github/workflows/build-linux.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Build
+        run: |
+          chmod +x build-linux.sh
+          ./build-linux.sh
+      - name: Zip
+        run: |
+          cd dist
+          zip -r VideoConverter-linux.zip VideoConverter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VideoConverter-Linux
+          path: dist/VideoConverter-linux.zip

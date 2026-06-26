@@ -39,7 +39,12 @@ def check_for_updates(timeout: float = 10.0) -> tuple[bool, str, str]:
 def get_release_download_url(platform: str | None = None) -> str | None:
     platform = platform or sys.platform
     data = _fetch_latest_release()
-    needle = "windows" if platform == "win32" else "mac"
+    if sys.platform == "win32":
+        needle = "windows"
+    elif sys.platform == "darwin":
+        needle = "mac"
+    else:
+        needle = "linux"
     for asset in data.get("assets", []):
         name = (asset.get("name") or "").lower()
         if needle in name and name.endswith(".zip"):
@@ -89,6 +94,8 @@ def can_auto_update() -> bool:
         return exe.suffix.lower() == ".exe"
     if sys.platform == "darwin":
         return install_root.suffix == ".app"
+    if sys.platform.startswith("linux"):
+        return exe.name == "VideoConverter" and install_root.name == "VideoConverter"
     return False
 
 
@@ -134,6 +141,12 @@ def find_payload_root(extract_dir: Path) -> Path:
         for app in extract_dir.rglob("VideoConverter.app"):
             if app.is_dir():
                 return app
+    if sys.platform.startswith("linux"):
+        candidate = extract_dir / "VideoConverter"
+        if candidate.is_dir():
+            exe = candidate / "VideoConverter"
+            if exe.is_file() or (candidate / "_internal").is_dir():
+                return candidate
     raise RuntimeError("Unsupported release archive layout.")
 
 

@@ -6,6 +6,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .options_io import options_from_dict, options_to_dict
+
 
 def _history_path() -> Path:
     if sys.platform == "win32":
@@ -35,9 +37,11 @@ def load_history(limit: int = 50) -> list[dict]:
     return []
 
 
-def append_history(entry: dict) -> None:
+def append_history(entry: dict, options: dict | None = None) -> None:
     items = load_history(limit=200)
     entry["time"] = datetime.now(timezone.utc).isoformat()
+    if options is not None:
+        entry["options"] = options
     items.append(entry)
     _history_path().write_text(json.dumps(items[-100:], ensure_ascii=False, indent=2), encoding="utf-8")
 

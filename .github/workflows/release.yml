@@ -46,8 +46,30 @@ jobs:
           name: release-macos
           path: dist/VideoConverter-mac.zip
 
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Build
+        run: |
+          chmod +x build-linux.sh
+          ./build-linux.sh
+      - name: Zip
+        run: |
+          cd dist
+          zip -r VideoConverter-linux.zip VideoConverter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/VideoConverter-linux.zip
+
   publish:
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -61,4 +83,5 @@ jobs:
           files: |
             artifacts/release-windows/VideoConverter-windows.zip
             artifacts/release-macos/VideoConverter-mac.zip
+            artifacts/release-linux/VideoConverter-linux.zip
           generate_release_notes: true

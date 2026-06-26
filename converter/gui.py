@@ -4,21 +4,27 @@ import threading
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from . import __version__
-from .batch import build_batch_items, run_batch
+from .background import spawn_background_batch
+from .batch import build_batch_items, pause_batch, resume_batch, run_batch
 from .compare import compare_conversion
 from .convert import ConvertOptions, build_ffmpeg_args, convert_video, list_audio_formats, list_supported_formats
 from .dnd import bind_file_drop
 from .ffmpeg_utils import FFmpegNotFoundError
+from .file_scan import scan_videos
 from .history import append_history, load_history, log_error, log_path
 from .i18n import I18n
+from .notifications import notify
+from .options_io import options_from_dict, options_to_dict
 from .platform_utils import open_path
-from .presets import RESOLUTIONS, list_quality_presets
+from .presets import RESOLUTIONS, QualityPreset, list_quality_presets
+from .settings import AppSettings, add_custom_preset, load_settings, save_settings
 from .preview import generate_preview
 from .probe import analyze_file, render_media_info
 from .streams import list_selectable_streams
+from .watch_folder import FolderWatcher
 from .updater import (
     can_auto_update,
     check_for_updates,
@@ -39,7 +45,8 @@ VIDEO_EXTS = {".mov", ".mp4", ".mkv", ".avi", ".webm", ".wmv", ".flv", ".m4v", "
 class VideoConverterApp(_AppBase):
     def __init__(self) -> None:
         super().__init__()
-        self.i18n = I18n("uk")
+        settings = load_settings()
+        self.i18n = I18n(settings.lang)
         self.title(f"{self.i18n.t('app_title')} v{__version__}")
         self.geometry("980x860")
         self.minsize(900, 740)
@@ -47,9 +54,10 @@ class VideoConverterApp(_AppBase):
         self._i18n_widgets: list[tuple[object, str, str]] = []
         self._notebook_tabs: list[tuple[ttk.Frame, str]] = []
         self._help_menu: tk.Menu | None = None
+        self._menu: tk.Menu | None = None
 
-        self._dark = tk.BooleanVar(value=False)
-        self._lang = tk.StringVar(value="uk")
+        self._dark = tk.BooleanVar(value=settings.dark)
+        self._lang = tk.StringVar(value=settings.lang)
         self._input_path = tk.StringVar()
         self._output_path = tk.StringVar()
         self._format = tk.StringVar(value="mp4")
@@ -72,6 +80,13 @@ class VideoConverterApp(_AppBase):
         self._audio_format = tk.StringVar(value="mp3")
         self._external_audio = tk.StringVar()
         self._subtitle_path = tk.StringVar()
+        self._subtitle_stream_idx = tk.StringVar()
+        self._subtitle_burn_in = tk.BooleanVar(value=False)
+        self._extract_sub_format = tk.StringVar(value=settings.extract_subtitle_format)
+        self._replace_audio = tk.BooleanVar(value=False)
+        self._audio_delay_ms = tk.IntVar(value=0)
+        self._extra_audio_tracks = tk.StringVar()
+        self._cover_art_path = tk.StringVar()
         self._trim_start = tk.StringVar()
         self._trim_end = tk.StringVar()
         self._meta_title = tk.StringVar()
@@ -84,22 +99,46 @@ class VideoConverterApp(_AppBase):
         self._rotation = tk.StringVar(value="0")
         self._fps = tk.StringVar()
         self._watermark_path = tk.StringVar()
+        self._watermark_position = tk.StringVar(value=settings.watermark_position)
+        self._video_codec = tk.StringVar(value=settings.video_codec)
+        self._audio_codec = tk.StringVar(value=settings.audio_codec)
+        self._video_bitrate = tk.StringVar(value=settings.video_bitrate)
+        self._preserve_chapters = tk.BooleanVar(value=settings.preserve_chapters)
+        self._deinterlace = tk.BooleanVar(value=False)
+        self._denoise = tk.BooleanVar(value=False)
         self._preview_pct = tk.DoubleVar(value=0.0)
         self._status = tk.StringVar(value=self.i18n.t("ready"))
         self._cmd_text = tk.StringVar(value="")
         self._comparison = tk.StringVar(value="")
+        self._notify_on_complete = tk.BooleanVar(value=settings.notify_on_complete)
+        self._recursive_batch = tk.BooleanVar(value=settings.recursive_batch)
+        self._parallel_batch = tk.IntVar(value=settings.parallel_batch)
+        self._watch_folder = tk.StringVar(value=settings.watch_folder)
+        self._watch_enabled = tk.BooleanVar(value=settings.watch_enabled)
+        self._watch_interval = tk.IntVar(value=settings.watch_interval_sec)
 
         self._cancel_requested = False
         self._worker: threading.Thread | None = None
         self._progress_start = 0.0
         self._preview_image: tk.PhotoImage | None = None
+        self._preview_playing = False
+        self._preview_after_id: str | None = None
         self._media_duration: float | None = None
         self._batch_files: list[Path] = []
+        self._batch_items: list = []
+        self._batch_base: ConvertOptions | None = None
+        self._batch_running = False
         self._merge_files: list[Path] = []
-        self._check_updates_on_startup = tk.BooleanVar(value=True)
+        self._history_entries: list[dict] = []
+        self._folder_watcher: FolderWatcher | None = None
+        self._check_updates_on_startup = tk.BooleanVar(value=settings.check_updates_on_startup)
         self._update_in_progress = False
 
         self._build_ui()
+        self.i18n.set_lang(settings.lang)
+        self._apply_theme()
+        if settings.watch_enabled and settings.watch_folder:
+            self.after(500, self._watch_start)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._check_ffmpeg)
         self.after(1500, self._startup_update_check)
@@ -133,6 +172,8 @@ class VideoConverterApp(_AppBase):
             self._help_menu.entryconfigure(1, label=self._t("install_update"))
             self._help_menu.entryconfigure(2, label=self._t("download_update"))
             self._help_menu.entryconfigure(3, label=self._t("open_log_folder"))
+        if self._menu is not None:
+            self._menu.entryconfigure(0, label=self._t("help"))
 
     def _build_ui(self) -> None:
         self._build_menu()
@@ -140,7 +181,7 @@ class VideoConverterApp(_AppBase):
         top = ttk.Frame(self)
         top.pack(fill=tk.X, **pad)
         self._add_i18n(
-            ttk.Checkbutton(top, text="", variable=self._dark, command=self._apply_theme),
+            ttk.Checkbutton(top, text="", variable=self._dark, command=self._on_dark_toggle),
             "dark_theme",
         ).pack(side=tk.LEFT)
         self._add_i18n(ttk.Label(top, text=""), "language").pack(side=tk.LEFT, padx=(16, 4))
@@ -148,9 +189,17 @@ class VideoConverterApp(_AppBase):
         lang_cb.pack(side=tk.LEFT)
         lang_cb.bind("<<ComboboxSelected>>", lambda _e: self._change_language())
         self._add_i18n(
-            ttk.Checkbutton(top, text="", variable=self._check_updates_on_startup),
+            ttk.Checkbutton(top, text="", variable=self._check_updates_on_startup, command=self._save_settings),
             "update_on_startup",
         ).pack(side=tk.LEFT, padx=(16, 0))
+        self._add_i18n(
+            ttk.Checkbutton(top, text="", variable=self._notify_on_complete, command=self._save_settings),
+            "notify_on_complete",
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        self._add_i18n(
+            ttk.Button(top, text="", command=self._save_custom_preset),
+            "save_preset",
+        ).pack(side=tk.RIGHT)
 
         self._notebook = ttk.Notebook(self)
         self._notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
@@ -159,6 +208,7 @@ class VideoConverterApp(_AppBase):
         self._tab_trim = ttk.Frame(self._notebook)
         self._tab_advanced = ttk.Frame(self._notebook)
         self._tab_batch = ttk.Frame(self._notebook)
+        self._tab_watch = ttk.Frame(self._notebook)
         self._tab_history = ttk.Frame(self._notebook)
         for tab, name in [
             (self._tab_convert, "tab_convert"),
@@ -166,6 +216,7 @@ class VideoConverterApp(_AppBase):
             (self._tab_trim, "tab_trim"),
             (self._tab_advanced, "tab_advanced"),
             (self._tab_batch, "tab_batch"),
+            (self._tab_watch, "tab_watch"),
             (self._tab_history, "tab_history"),
         ]:
             self._notebook.add(tab, text=self._t(name))
@@ -176,6 +227,7 @@ class VideoConverterApp(_AppBase):
         self._build_trim_tab()
         self._build_advanced_tab()
         self._build_batch_tab()
+        self._build_watch_tab()
         self._build_history_tab()
 
         bottom = ttk.Frame(self)
@@ -211,12 +263,13 @@ class VideoConverterApp(_AppBase):
 
     def _build_menu(self) -> None:
         menu = tk.Menu(self)
+        self._menu = menu
         self._help_menu = tk.Menu(menu, tearoff=0)
         self._help_menu.add_command(label=self._t("check_updates"), command=self._check_updates)
         self._help_menu.add_command(label=self._t("install_update"), command=self._install_update)
         self._help_menu.add_command(label=self._t("download_update"), command=self._download_update)
         self._help_menu.add_command(label=self._t("open_log_folder"), command=self._open_log_folder)
-        menu.add_cascade(label="Help", menu=self._help_menu)
+        menu.add_cascade(label=self._t("help"), menu=self._help_menu)
         self.config(menu=menu)
 
     def _build_convert_tab(self) -> None:
@@ -251,6 +304,12 @@ class VideoConverterApp(_AppBase):
             variable=self._preview_pct,
             command=self._on_preview_seek,
         ).pack(fill=tk.X)
+        preview_btns = ttk.Frame(preview_ctrl)
+        preview_btns.pack(fill=tk.X, pady=(4, 0))
+        self._add_i18n(ttk.Button(preview_btns, text="", command=self._preview_play), "preview_play").pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
+        self._add_i18n(ttk.Button(preview_btns, text="", command=self._preview_stop), "preview_stop").pack(side=tk.LEFT)
 
         info_frame = ttk.LabelFrame(body, text=self._t("file_info"))
         info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -272,9 +331,10 @@ class VideoConverterApp(_AppBase):
             row=0, column=1, sticky=tk.W
         )
         self._add_i18n(ttk.Label(g, text=""), "quality_preset").grid(row=0, column=2, sticky=tk.W, padx=(16, 8))
-        ttk.Combobox(
+        self._quality_preset_cb = ttk.Combobox(
             g, textvariable=self._quality_preset, values=list_quality_presets(), state="readonly", width=14
-        ).grid(row=0, column=3, sticky=tk.W)
+        )
+        self._quality_preset_cb.grid(row=0, column=3, sticky=tk.W)
         self._add_i18n(ttk.Label(g, text=""), "resolution").grid(row=1, column=0, sticky=tk.W, padx=(0, 8), pady=4)
         ttk.Combobox(g, textvariable=self._resolution, values=list(RESOLUTIONS.keys()), state="readonly", width=10).grid(
             row=1, column=1, sticky=tk.W, pady=4
@@ -287,30 +347,36 @@ class VideoConverterApp(_AppBase):
         self._add_i18n(ttk.Label(g, text=""), "audio_stream").grid(row=3, column=0, sticky=tk.W, pady=4)
         self._audio_stream_cb = ttk.Combobox(g, textvariable=self._audio_stream_idx, state="readonly", width=24)
         self._audio_stream_cb.grid(row=3, column=1, columnspan=3, sticky=tk.EW, pady=4)
+        self._add_i18n(ttk.Label(g, text=""), "video_codec").grid(row=4, column=0, sticky=tk.W, pady=4)
+        ttk.Entry(g, textvariable=self._video_codec, width=12).grid(row=4, column=1, sticky=tk.W, pady=4)
+        self._add_i18n(ttk.Label(g, text=""), "audio_codec").grid(row=4, column=2, sticky=tk.W, padx=(16, 8), pady=4)
+        ttk.Entry(g, textvariable=self._audio_codec, width=12).grid(row=4, column=3, sticky=tk.W, pady=4)
+        self._add_i18n(ttk.Label(g, text=""), "video_bitrate").grid(row=5, column=0, sticky=tk.W, pady=4)
+        ttk.Entry(g, textvariable=self._video_bitrate, width=12).grid(row=5, column=1, sticky=tk.W, pady=4)
         self._add_i18n(
             ttk.Checkbutton(g, text="", variable=self._copy_streams),
             "copy_streams",
-        ).grid(row=4, column=0, columnspan=2, sticky=tk.W)
+        ).grid(row=6, column=0, columnspan=2, sticky=tk.W)
         self._add_i18n(
             ttk.Checkbutton(g, text="", variable=self._overwrite),
             "overwrite",
-        ).grid(row=4, column=2, columnspan=2, sticky=tk.W)
+        ).grid(row=6, column=2, columnspan=2, sticky=tk.W)
         self._add_i18n(
             ttk.Checkbutton(g, text="", variable=self._hw_encode),
             "hw_encode",
-        ).grid(row=5, column=0, columnspan=2, sticky=tk.W)
+        ).grid(row=7, column=0, columnspan=2, sticky=tk.W)
         self._add_i18n(
             ttk.Checkbutton(g, text="", variable=self._prefer_hevc),
             "prefer_hevc",
-        ).grid(row=5, column=2, columnspan=2, sticky=tk.W)
+        ).grid(row=7, column=2, columnspan=2, sticky=tk.W)
         self._add_i18n(
             ttk.Checkbutton(g, text="", variable=self._verify),
             "verify",
-        ).grid(row=6, column=0, columnspan=2, sticky=tk.W)
+        ).grid(row=8, column=0, columnspan=2, sticky=tk.W)
         self._add_i18n(
             ttk.Checkbutton(g, text="", variable=self._show_cmd),
             "show_cmd",
-        ).grid(row=6, column=2, columnspan=2, sticky=tk.W)
+        ).grid(row=8, column=2, columnspan=2, sticky=tk.W)
         g.columnconfigure(3, weight=1)
 
         out_row = ttk.Frame(settings)
@@ -352,6 +418,37 @@ class VideoConverterApp(_AppBase):
             ttk.Checkbutton(f, text="", variable=self._extract_sub),
             "extract_sub",
         ).pack(anchor=tk.W, padx=8, pady=4)
+        row4 = ttk.Frame(f)
+        row4.pack(fill=tk.X, padx=8, pady=4)
+        self._add_i18n(ttk.Label(row4, text=""), "subtitle_stream").pack(side=tk.LEFT)
+        self._subtitle_stream_cb = ttk.Combobox(row4, textvariable=self._subtitle_stream_idx, state="readonly", width=28)
+        self._subtitle_stream_cb.pack(side=tk.LEFT, padx=8, fill=tk.X, expand=True)
+        self._add_i18n(
+            ttk.Checkbutton(f, text="", variable=self._subtitle_burn_in),
+            "subtitle_burn_in",
+        ).pack(anchor=tk.W, padx=8, pady=4)
+        row5 = ttk.Frame(f)
+        row5.pack(fill=tk.X, padx=8, pady=4)
+        self._add_i18n(ttk.Label(row5, text=""), "extract_sub_format").pack(side=tk.LEFT)
+        ttk.Combobox(
+            row5,
+            textvariable=self._extract_sub_format,
+            values=["srt", "ass", "vtt"],
+            state="readonly",
+            width=8,
+        ).pack(side=tk.LEFT, padx=8)
+        self._add_i18n(
+            ttk.Checkbutton(f, text="", variable=self._replace_audio),
+            "replace_audio",
+        ).pack(anchor=tk.W, padx=8, pady=4)
+        row6 = ttk.Frame(f)
+        row6.pack(fill=tk.X, padx=8, pady=4)
+        self._add_i18n(ttk.Label(row6, text=""), "audio_delay").pack(side=tk.LEFT)
+        ttk.Entry(row6, textvariable=self._audio_delay_ms, width=10).pack(side=tk.LEFT, padx=8)
+        row7 = ttk.Frame(f)
+        row7.pack(fill=tk.X, padx=8, pady=4)
+        self._add_i18n(ttk.Label(row7, text=""), "extra_audio_tracks").pack(side=tk.LEFT)
+        ttk.Entry(row7, textvariable=self._extra_audio_tracks).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
 
     def _build_trim_tab(self) -> None:
         p = self._tab_trim
@@ -395,6 +492,25 @@ class VideoConverterApp(_AppBase):
             ttk.Checkbutton(meta, text="", variable=self._strip_meta),
             "strip_meta",
         ).pack(anchor=tk.W, padx=8, pady=4)
+        r5 = ttk.Frame(meta)
+        r5.pack(fill=tk.X, padx=8, pady=4)
+        self._add_i18n(ttk.Label(r5, text=""), "cover_art").pack(side=tk.LEFT)
+        ttk.Entry(r5, textvariable=self._cover_art_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
+        self._add_i18n(ttk.Button(r5, text="", command=self._browse_cover_art), "browse").pack(side=tk.LEFT)
+        filt = ttk.LabelFrame(p, text=self._t("tab_advanced"))
+        filt.pack(fill=tk.X, padx=8, pady=8)
+        self._add_i18n(
+            ttk.Checkbutton(filt, text="", variable=self._preserve_chapters, command=self._save_settings),
+            "preserve_chapters",
+        ).pack(anchor=tk.W, padx=8, pady=4)
+        self._add_i18n(
+            ttk.Checkbutton(filt, text="", variable=self._deinterlace),
+            "deinterlace",
+        ).pack(anchor=tk.W, padx=8, pady=4)
+        self._add_i18n(
+            ttk.Checkbutton(filt, text="", variable=self._denoise),
+            "denoise",
+        ).pack(anchor=tk.W, padx=8, pady=4)
 
     def _build_advanced_tab(self) -> None:
         p = self._tab_advanced
@@ -435,6 +551,10 @@ class VideoConverterApp(_AppBase):
         self._add_i18n(ttk.Label(wm_row, text=""), "watermark").pack(side=tk.LEFT)
         ttk.Entry(wm_row, textvariable=self._watermark_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
         self._add_i18n(ttk.Button(wm_row, text="", command=self._browse_watermark), "browse").pack(side=tk.LEFT)
+        wm_pos_row = ttk.Frame(opts)
+        wm_pos_row.pack(fill=tk.X, padx=8, pady=4)
+        self._add_i18n(ttk.Label(wm_pos_row, text=""), "watermark_position").pack(side=tk.LEFT)
+        ttk.Entry(wm_pos_row, textvariable=self._watermark_position, width=12).pack(side=tk.LEFT, padx=8)
         self._add_i18n(
             ttk.Checkbutton(opts, text="", variable=self._two_pass),
             "two_pass",
@@ -458,11 +578,51 @@ class VideoConverterApp(_AppBase):
         )
         self._add_i18n(ttk.Button(btns, text="", command=self._batch_clear), "clear_queue").pack(fill=tk.X, pady=2)
         self._add_i18n(ttk.Button(btns, text="", command=self._start_batch), "convert").pack(fill=tk.X, pady=(12, 2))
+        self._add_i18n(ttk.Button(btns, text="", command=self._pause_batch), "pause_batch").pack(fill=tk.X, pady=2)
+        self._add_i18n(ttk.Button(btns, text="", command=self._resume_batch), "resume_batch").pack(fill=tk.X, pady=2)
+        opts_row = ttk.Frame(p)
+        opts_row.pack(fill=tk.X, padx=8, pady=4)
+        self._add_i18n(
+            ttk.Checkbutton(opts_row, text="", variable=self._recursive_batch, command=self._save_settings),
+            "recursive_batch",
+        ).pack(side=tk.LEFT)
+        self._add_i18n(ttk.Label(opts_row, text=""), "parallel_batch").pack(side=tk.LEFT, padx=(16, 4))
+        ttk.Spinbox(
+            opts_row,
+            from_=1,
+            to=4,
+            textvariable=self._parallel_batch,
+            width=4,
+            command=self._save_settings,
+        ).pack(side=tk.LEFT)
         row = ttk.Frame(p)
         row.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(row, text=""), "batch_output_dir").pack(side=tk.LEFT)
+        self._add_i18n(ttk.Label(row, text=""), "output_dir").pack(side=tk.LEFT)
         ttk.Entry(row, textvariable=self._batch_output_dir).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
         ttk.Button(row, text="...", width=4, command=self._browse_batch_dir).pack(side=tk.LEFT)
+
+    def _build_watch_tab(self) -> None:
+        p = self._tab_watch
+        f = ttk.LabelFrame(p, text=self._t("tab_watch"))
+        f.pack(fill=tk.X, padx=8, pady=8)
+        self._add_i18n(f, "tab_watch", "label")
+        row = ttk.Frame(f)
+        row.pack(fill=tk.X, padx=8, pady=4)
+        self._add_i18n(ttk.Label(row, text=""), "watch_folder").pack(side=tk.LEFT)
+        ttk.Entry(row, textvariable=self._watch_folder).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
+        self._add_i18n(ttk.Button(row, text="", command=self._browse_watch_folder), "browse_folder").pack(side=tk.LEFT)
+        row2 = ttk.Frame(f)
+        row2.pack(fill=tk.X, padx=8, pady=4)
+        self._add_i18n(
+            ttk.Checkbutton(row2, text="", variable=self._watch_enabled, command=self._save_settings),
+            "watch_enable",
+        ).pack(side=tk.LEFT)
+        self._add_i18n(ttk.Label(row2, text=""), "watch_interval").pack(side=tk.LEFT, padx=(16, 4))
+        ttk.Spinbox(row2, from_=2, to=120, textvariable=self._watch_interval, width=5).pack(side=tk.LEFT)
+        row3 = ttk.Frame(f)
+        row3.pack(fill=tk.X, padx=8, pady=8)
+        ttk.Button(row3, text="Start", command=self._watch_start).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(row3, text="Stop", command=self._watch_stop).pack(side=tk.LEFT)
 
     def _build_history_tab(self) -> None:
         p = self._tab_history
@@ -472,7 +632,16 @@ class VideoConverterApp(_AppBase):
         self._history_tree.heading("input", text=self._t("history_col_in"))
         self._history_tree.heading("output", text=self._t("history_col_out"))
         self._history_tree.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
-        self._add_i18n(ttk.Button(p, text="", command=self._refresh_history), "refresh").pack(pady=4)
+        self._history_tree.bind("<Double-1>", self._history_double_click)
+        hist_btns = ttk.Frame(p)
+        hist_btns.pack(pady=4)
+        self._add_i18n(ttk.Button(hist_btns, text="", command=self._history_load), "history_load").pack(
+            side=tk.LEFT, padx=4
+        )
+        self._add_i18n(ttk.Button(hist_btns, text="", command=self._history_rerun), "history_rerun").pack(
+            side=tk.LEFT, padx=4
+        )
+        self._add_i18n(ttk.Button(hist_btns, text="", command=self._refresh_history), "refresh").pack(side=tk.LEFT, padx=4)
         self._refresh_history()
 
     def _apply_theme(self) -> None:
@@ -500,10 +669,55 @@ class VideoConverterApp(_AppBase):
             self._batch_list.configure(bg="white", fg="black")
             self._merge_listbox.configure(bg="white", fg="black")
 
+    def _on_dark_toggle(self) -> None:
+        self._apply_theme()
+        self._save_settings()
+
+    def _save_settings(self) -> None:
+        save_settings(
+            AppSettings(
+                lang=self._lang.get(),
+                dark=self._dark.get(),
+                check_updates_on_startup=self._check_updates_on_startup.get(),
+                notify_on_complete=self._notify_on_complete.get(),
+                recursive_batch=self._recursive_batch.get(),
+                parallel_batch=int(self._parallel_batch.get()),
+                preserve_chapters=self._preserve_chapters.get(),
+                watch_folder=self._watch_folder.get(),
+                watch_enabled=self._watch_enabled.get(),
+                watch_interval_sec=int(self._watch_interval.get()),
+                video_codec=self._video_codec.get(),
+                audio_codec=self._audio_codec.get(),
+                video_bitrate=self._video_bitrate.get(),
+                watermark_position=self._watermark_position.get(),
+                extract_subtitle_format=self._extract_sub_format.get(),
+            )
+        )
+
+    def _save_custom_preset(self) -> None:
+        name = simpledialog.askstring(self._t("save_preset"), self._t("preset_name"), parent=self)
+        if not name or not name.strip():
+            return
+        name = name.strip()
+        scale = RESOLUTIONS.get(self._resolution.get())
+        preset = QualityPreset(
+            id=name,
+            crf=None if self._copy_streams.get() else int(self._crf.get()),
+            preset=self._preset.get(),
+            video_bitrate=self._video_bitrate.get().strip() or None,
+            scale=scale,
+            format=self._format.get().lstrip("."),
+        )
+        add_custom_preset(name, preset)
+        self._quality_preset_cb.configure(values=list_quality_presets())
+        self._quality_preset.set(name)
+        messagebox.showinfo(self._t("done"), name)
+
     def _change_language(self, _event=None) -> None:
         self.i18n.set_lang(self._lang.get())
         self.title(f"{self.i18n.t('app_title')} v{__version__}")
         self._refresh_i18n()
+        self._save_settings()
 
     @staticmethod
     def _stream_index(var: tk.StringVar) -> int | None:
@@ -515,6 +729,31 @@ class VideoConverterApp(_AppBase):
             return int(part)
         except ValueError:
             return None
+
+    def _set_stream_by_index(self, var: tk.StringVar, cb: ttk.Combobox, index: int | None) -> None:
+        if index is None:
+            var.set("")
+            return
+        for label in cb.cget("values"):
+            if str(label).startswith(f"{index}:"):
+                var.set(label)
+                return
+        var.set(str(index))
+
+    def _parse_extra_audio_tracks(self) -> list[int]:
+        text = self._extra_audio_tracks.get().strip()
+        if not text:
+            return []
+        tracks: list[int] = []
+        for part in text.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                tracks.append(int(part))
+            except ValueError:
+                continue
+        return tracks
 
     def _on_drop(self, paths: list[str]) -> None:
         videos = [p for p in paths if Path(p).suffix.lower() in VIDEO_EXTS]
@@ -561,6 +800,17 @@ class VideoConverterApp(_AppBase):
         if path:
             self._watermark_path.set(path)
 
+    def _browse_cover_art(self) -> None:
+        path = filedialog.askopenfilename(filetypes=[("Image", "*.png *.jpg *.jpeg *.gif"), ("All", "*.*")])
+        if path:
+            self._cover_art_path.set(path)
+
+    def _browse_watch_folder(self) -> None:
+        path = filedialog.askdirectory()
+        if path:
+            self._watch_folder.set(path)
+            self._save_settings()
+
     def _browse_batch_dir(self) -> None:
         path = filedialog.askdirectory()
         if path:
@@ -585,13 +835,37 @@ class VideoConverterApp(_AppBase):
         self._output_path.set(str(input_path.with_name(f"{input_path.stem}_converted.{fmt}")))
 
     def _populate_streams(self, path: Path) -> None:
-        video, audio = list_selectable_streams(path)
+        video, audio, subtitles = list_selectable_streams(path)
         v_labels = [label for _, label in video]
         a_labels = [label for _, label in audio]
+        s_labels = [label for _, label in subtitles]
         self._video_stream_cb.configure(values=v_labels)
         self._audio_stream_cb.configure(values=a_labels)
+        self._subtitle_stream_cb.configure(values=s_labels)
         self._video_stream_idx.set(v_labels[0] if v_labels else "")
         self._audio_stream_idx.set(a_labels[0] if a_labels else "")
+        self._subtitle_stream_idx.set(s_labels[0] if s_labels else "")
+
+    def _preview_play(self) -> None:
+        if self._preview_playing:
+            return
+        self._preview_playing = True
+        self._preview_tick()
+
+    def _preview_stop(self) -> None:
+        self._preview_playing = False
+        if self._preview_after_id is not None:
+            self.after_cancel(self._preview_after_id)
+            self._preview_after_id = None
+
+    def _preview_tick(self) -> None:
+        if not self._preview_playing:
+            return
+        pct = self._preview_pct.get()
+        pct = 0.0 if pct >= 100 else pct + 1.0
+        self._preview_pct.set(pct)
+        self._on_preview_seek()
+        self._preview_after_id = self.after(250, self._preview_tick)
 
     def _update_preview(self, path: Path, at_sec: float) -> None:
         preview = generate_preview(path, at_sec=at_sec)
@@ -649,10 +923,17 @@ class VideoConverterApp(_AppBase):
         ext_audio = self._external_audio.get().strip()
         sub = self._subtitle_path.get().strip()
         wm = self._watermark_path.get().strip()
+        cover = self._cover_art_path.get().strip()
+        vcodec = self._video_codec.get().strip() or None
+        acodec = self._audio_codec.get().strip() or None
+        vbitrate = self._video_bitrate.get().strip() or None
         return ConvertOptions(
             input_path=input_path,
             output_path=out,
             output_format=fmt,
+            video_codec=vcodec,
+            audio_codec=acodec,
+            video_bitrate=vbitrate,
             crf=None if self._copy_streams.get() else int(self._crf.get()),
             preset=self._preset.get(),
             copy_streams=self._copy_streams.get(),
@@ -668,6 +949,9 @@ class VideoConverterApp(_AppBase):
             extract_subtitles=self._extract_sub.get(),
             external_audio_path=Path(ext_audio) if ext_audio else None,
             subtitle_path=Path(sub) if sub else None,
+            subtitle_stream=self._stream_index(self._subtitle_stream_idx),
+            subtitle_burn_in=self._subtitle_burn_in.get(),
+            extract_subtitle_format=self._extract_sub_format.get(),
             normalize_audio=self._normalize.get(),
             gif_mode=self._gif_mode.get(),
             metadata_title=self._meta_title.get().strip() or None,
@@ -680,7 +964,15 @@ class VideoConverterApp(_AppBase):
             rotation=self._parse_rotation(),
             fps=self._fps.get().strip() or None,
             watermark_path=Path(wm) if wm else None,
+            watermark_position=self._watermark_position.get().strip() or "10:10",
             two_pass=self._two_pass.get(),
+            cover_art_path=Path(cover) if cover else None,
+            preserve_chapters=self._preserve_chapters.get(),
+            deinterlace=self._deinterlace.get(),
+            denoise=self._denoise.get(),
+            extra_audio_tracks=self._parse_extra_audio_tracks(),
+            replace_audio=self._replace_audio.get(),
+            audio_delay_ms=int(self._audio_delay_ms.get() or 0),
             video_stream=self._stream_index(self._video_stream_idx),
             audio_stream=self._stream_index(self._audio_stream_idx),
         )
@@ -763,12 +1055,18 @@ class VideoConverterApp(_AppBase):
         self._comparison.set(cmp_text)
         if self._show_cmd.get():
             self._show_ffmpeg_cmd(cmd)
-        append_history({"input": str(options.input_path), "output": str(output_path), "mode": "single"})
+        append_history(
+            {"input": str(options.input_path), "output": str(output_path), "mode": "single"},
+            options=options_to_dict(options),
+        )
         self._refresh_history()
         self._set_busy(False)
+        if self._notify_on_complete.get():
+            notify(self._t("app_title"), f"{self._t('done')}: {output_path.name}")
         messagebox.showinfo(self._t("done"), str(output_path))
 
     def _on_convert_failed(self, error: str) -> None:
+        self._batch_running = False
         self._status.set(self._t("error"))
         self._set_busy(False)
         if "скасовано" not in error.lower() and "cancel" not in error.lower():
@@ -791,10 +1089,8 @@ class VideoConverterApp(_AppBase):
         folder = filedialog.askdirectory()
         if not folder:
             return
-        root = Path(folder)
-        for ext in ("mov", "mp4", "mkv", "avi", "webm", "wmv", "flv", "m4v", "mpeg", "mpg", "ts", "ogv"):
-            for path in root.glob(f"*.{ext}"):
-                self._batch_add_path(path)
+        for path in scan_videos(Path(folder), recursive=self._recursive_batch.get()):
+            self._batch_add_path(path)
 
     def _batch_clear(self) -> None:
         self._batch_files.clear()
@@ -809,34 +1105,196 @@ class VideoConverterApp(_AppBase):
         out_dir = Path(self._batch_output_dir.get()) if self._batch_output_dir.get().strip() else None
         items = build_batch_items(self._batch_files, output_dir=out_dir, output_format=self._format.get())
         base = self._build_options(self._batch_files[0], items[0].output_path)
+        self._batch_items = items
+        self._batch_base = base
+        self._batch_running = True
         self._cancel_requested = False
         self._progress_start = time.time()
         self._set_busy(True)
         self._worker = threading.Thread(target=self._batch_worker, args=(items, base), daemon=True)
         self._worker.start()
 
+    def _pause_batch(self) -> None:
+        pause_batch()
+
+    def _resume_batch(self) -> None:
+        resume_batch()
+
     def _batch_worker(self, items, base: ConvertOptions) -> None:
         try:
-            results = run_batch(items, base, on_progress=self._on_progress, cancel_check=lambda: self._cancel_requested)
-            self.after(0, lambda: self._on_batch_done(results))
+            results = run_batch(
+                items,
+                base,
+                on_progress=self._on_progress,
+                cancel_check=lambda: self._cancel_requested,
+                max_workers=int(self._parallel_batch.get()),
+            )
+            self.after(0, lambda: self._on_batch_done(results, base))
         except Exception as exc:
             log_error(str(exc))
             self.after(0, lambda: self._on_convert_failed(str(exc)))
+            self.after(0, lambda: setattr(self, "_batch_running", False))
 
-    def _on_batch_done(self, results) -> None:
+    def _on_batch_done(self, results, base: ConvertOptions) -> None:
+        self._batch_running = False
         self._progress["value"] = 100
         self._status.set(f"{self._t('done')}: {len(results)} files")
+        opts_dict = options_to_dict(base)
         for output_path, _ in results:
-            append_history({"input": "batch", "output": str(output_path), "mode": "batch"})
+            append_history({"input": "batch", "output": str(output_path), "mode": "batch"}, options=opts_dict)
         self._refresh_history()
         self._set_busy(False)
+        if self._notify_on_complete.get():
+            notify(self._t("app_title"), f"{self._t('done')}: {len(results)} files")
         messagebox.showinfo(self._t("done"), f"{len(results)} files")
 
     def _refresh_history(self) -> None:
         for item in self._history_tree.get_children():
             self._history_tree.delete(item)
-        for row in reversed(load_history()):
+        self._history_entries = list(reversed(load_history()))
+        for row in self._history_entries:
             self._history_tree.insert("", tk.END, values=(row.get("time", ""), row.get("input", ""), row.get("output", "")))
+
+    def _history_get_selected_entry(self) -> dict | None:
+        sel = self._history_tree.selection()
+        if not sel:
+            return None
+        values = self._history_tree.item(sel[0], "values")
+        if not values:
+            return None
+        for entry in self._history_entries:
+            if (
+                entry.get("time", "") == values[0]
+                and entry.get("input", "") == values[1]
+                and entry.get("output", "") == values[2]
+            ):
+                return entry
+        return None
+
+    def _apply_options_to_gui(self, options: ConvertOptions) -> None:
+        self._input_path.set(str(options.input_path))
+        self._output_path.set(str(options.output_path) if options.output_path else "")
+        if options.output_format:
+            self._format.set(options.output_format.lstrip("."))
+        self._video_codec.set(options.video_codec or "")
+        self._audio_codec.set(options.audio_codec or "")
+        self._video_bitrate.set(options.video_bitrate or "")
+        if options.crf is not None:
+            self._crf.set(int(options.crf))
+        self._preset.set(options.preset)
+        self._copy_streams.set(options.copy_streams)
+        self._overwrite.set(options.overwrite)
+        if options.quality_preset_id:
+            self._quality_preset.set(options.quality_preset_id)
+        for key, val in RESOLUTIONS.items():
+            if val == options.scale:
+                self._resolution.set(key)
+                break
+        else:
+            self._resolution.set("original")
+        self._trim_start.set(options.start_time or "")
+        self._trim_end.set(options.end_time or "")
+        self._hw_encode.set(options.hardware_encode)
+        self._prefer_hevc.set(options.prefer_hevc)
+        self._extract_audio.set(options.extract_audio)
+        self._extract_sub.set(options.extract_subtitles)
+        self._external_audio.set(str(options.external_audio_path) if options.external_audio_path else "")
+        self._subtitle_path.set(str(options.subtitle_path) if options.subtitle_path else "")
+        self._subtitle_burn_in.set(options.subtitle_burn_in)
+        self._extract_sub_format.set(options.extract_subtitle_format)
+        self._normalize.set(options.normalize_audio)
+        self._gif_mode.set(options.gif_mode)
+        self._meta_title.set(options.metadata_title or "")
+        self._meta_author.set(options.metadata_author or "")
+        self._metadata_date.set(options.metadata_date or "")
+        self._strip_meta.set(options.strip_metadata)
+        self._verify.set(options.verify_output)
+        self._merge_files.clear()
+        self._merge_listbox.delete(0, tk.END)
+        for merge_path in options.merge_inputs:
+            self._merge_files.append(merge_path)
+            self._merge_listbox.insert(tk.END, str(merge_path))
+        self._crop.set(options.crop or "")
+        self._rotation.set(str(options.rotation) if options.rotation else "0")
+        self._fps.set(options.fps or "")
+        self._watermark_path.set(str(options.watermark_path) if options.watermark_path else "")
+        self._watermark_position.set(options.watermark_position)
+        self._two_pass.set(options.two_pass)
+        self._cover_art_path.set(str(options.cover_art_path) if options.cover_art_path else "")
+        self._preserve_chapters.set(options.preserve_chapters)
+        self._deinterlace.set(options.deinterlace)
+        self._denoise.set(options.denoise)
+        self._extra_audio_tracks.set(",".join(str(x) for x in options.extra_audio_tracks))
+        self._replace_audio.set(options.replace_audio)
+        self._audio_delay_ms.set(options.audio_delay_ms)
+        if options.input_path.is_file():
+            try:
+                self._populate_streams(options.input_path)
+            except Exception:
+                pass
+            self._set_stream_by_index(self._video_stream_idx, self._video_stream_cb, options.video_stream)
+            self._set_stream_by_index(self._audio_stream_idx, self._audio_stream_cb, options.audio_stream)
+            self._set_stream_by_index(self._subtitle_stream_idx, self._subtitle_stream_cb, options.subtitle_stream)
+
+    def _history_load(self) -> None:
+        entry = self._history_get_selected_entry()
+        if not entry or "options" not in entry:
+            messagebox.showwarning(self._t("error"), self._t("history_load"))
+            return
+        try:
+            options = options_from_dict(entry["options"])
+            self._apply_options_to_gui(options)
+            self._status.set(self._t("history_load"))
+        except Exception as exc:
+            messagebox.showerror(self._t("error"), str(exc))
+
+    def _history_rerun(self) -> None:
+        entry = self._history_get_selected_entry()
+        if not entry or "options" not in entry:
+            messagebox.showwarning(self._t("error"), self._t("history_rerun"))
+            return
+        try:
+            options = options_from_dict(entry["options"])
+            self._apply_options_to_gui(options)
+            self._start_convert()
+        except Exception as exc:
+            messagebox.showerror(self._t("error"), str(exc))
+
+    def _history_double_click(self, _event=None) -> None:
+        self._history_load()
+
+    def _watch_start(self) -> None:
+        folder = self._watch_folder.get().strip()
+        if not folder:
+            messagebox.showwarning(self._t("error"), self._t("watch_folder"))
+            return
+        path = Path(folder)
+        if not path.is_dir():
+            messagebox.showerror(self._t("error"), self._t("watch_folder"))
+            return
+        self._watch_stop()
+        self._folder_watcher = FolderWatcher(
+            path,
+            interval_sec=int(self._watch_interval.get()),
+            recursive=self._recursive_batch.get(),
+            on_new_file=lambda p: self.after(0, lambda fp=p: self._auto_convert_path(fp)),
+        )
+        self._folder_watcher.start()
+        self._watch_enabled.set(True)
+        self._save_settings()
+        self._status.set(self._t("tab_watch"))
+
+    def _watch_stop(self) -> None:
+        if self._folder_watcher is not None:
+            self._folder_watcher.stop()
+            self._folder_watcher = None
+
+    def _auto_convert_path(self, path: Path) -> None:
+        if self._worker and self._worker.is_alive():
+            return
+        self._input_path.set(str(path))
+        self._suggest_output_path(path)
+        self._start_convert()
 
     def _open_output_folder(self) -> None:
         text = self._output_path.get().strip()
@@ -954,9 +1412,22 @@ class VideoConverterApp(_AppBase):
 
     def _on_close(self) -> None:
         if self._worker and self._worker.is_alive():
-            if not messagebox.askyesno("Exit", "Conversion in progress. Exit?"):
+            if self._batch_running and self._batch_items and self._batch_base is not None:
+                if messagebox.askyesno(self._t("app_title"), self._t("exit_background")):
+                    spawn_background_batch(self._batch_items, self._batch_base)
+                    self._watch_stop()
+                    self._preview_stop()
+                    self._save_settings()
+                    self.destroy()
+                else:
+                    self._cancel_requested = True
+                return
+            if not messagebox.askyesno(self._t("app_title"), self._t("exit_confirm")):
                 return
             self._cancel_requested = True
+        self._watch_stop()
+        self._preview_stop()
+        self._save_settings()
         self.destroy()
 
 

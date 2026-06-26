@@ -40,12 +40,24 @@ QUALITY_PRESETS: dict[str, QualityPreset] = {
     "tv": QualityPreset(
         id="tv", crf=18, preset="slow", video_bitrate="12M", audio_bitrate="192k", scale="1920:1080", format="mp4"
     ),
+    "webm_short": QualityPreset(
+        id="webm_short", crf=30, preset="fast", video_bitrate="1M", audio_bitrate="96k", scale="640:-2", format="webm"
+    ),
 }
 
 
 def list_quality_presets() -> list[str]:
-    return list(QUALITY_PRESETS.keys())
+    from .settings import load_custom_presets
+
+    return list(QUALITY_PRESETS.keys()) + list(load_custom_presets().keys())
 
 
 def apply_quality_preset(preset_id: str) -> QualityPreset:
-    return QUALITY_PRESETS.get(preset_id, QUALITY_PRESETS["custom"])
+    if preset_id in QUALITY_PRESETS:
+        return QUALITY_PRESETS[preset_id]
+    from .settings import load_custom_presets, quality_preset_from_dict
+
+    custom = load_custom_presets().get(preset_id)
+    if custom:
+        return quality_preset_from_dict(custom)
+    return QUALITY_PRESETS["custom"]

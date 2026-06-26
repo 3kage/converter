@@ -60,6 +60,9 @@ class ConvertOptions:
     extract_subtitles: bool = False
     external_audio_path: Path | None = None
     subtitle_path: Path | None = None
+    subtitle_stream: int | None = None
+    subtitle_burn_in: bool = False
+    extract_subtitle_format: str = "srt"
     normalize_audio: bool = False
     gif_mode: bool = False
     metadata_title: str | None = None
@@ -74,6 +77,13 @@ class ConvertOptions:
     watermark_path: Path | None = None
     watermark_position: str = "10:10"
     two_pass: bool = False
+    cover_art_path: Path | None = None
+    preserve_chapters: bool = True
+    deinterlace: bool = False
+    denoise: bool = False
+    extra_audio_tracks: list[int] = field(default_factory=list)
+    replace_audio: bool = False
+    audio_delay_ms: int = 0
 
 
 def list_supported_formats() -> list[str]:
@@ -97,7 +107,10 @@ def _resolve_output_path(options: ConvertOptions) -> Path:
     if options.gif_mode:
         fmt = "gif"
     if options.extract_subtitles:
-        return options.input_path.with_name(f"{options.input_path.stem}.srt")
+        ext = options.extract_subtitle_format.lower().lstrip(".")
+        if ext not in {"srt", "ass", "vtt"}:
+            ext = "srt"
+        return options.input_path.with_name(f"{options.input_path.stem}.{ext}")
     return options.input_path.with_name(f"{options.input_path.stem}_converted.{fmt}")
 
 
@@ -134,9 +147,9 @@ def _parse_time(value: str | None) -> str | None:
     raise ValueError(f"Невірний формат часу: {value}. Використовуйте HH:MM:SS або секунди.")
 
 
-def _input_index(extra_audio: bool, extra_sub: bool, extra_wm: bool) -> dict[str, int]:
+def _input_index(extra_audio: bool, extra_sub: bool, extra_wm: bool, extra_cover: bool) -> dict[str, int]:
     idx = 1
-    mapping = {"audio": 0, "sub": 0, "wm": 0}
+    mapping = {"audio": 0, "sub": 0, "wm": 0, "cover": 0}
     if extra_audio:
         mapping["audio"] = idx
         idx += 1
@@ -145,6 +158,9 @@ def _input_index(extra_audio: bool, extra_sub: bool, extra_wm: bool) -> dict[str
         idx += 1
     if extra_wm:
         mapping["wm"] = idx
+        idx += 1
+    if extra_cover:
+        mapping["cover"] = idx
     return mapping
 
 
@@ -167,8 +183,9 @@ def build_ffmpeg_args(options: ConvertOptions, *, pass_number: int | None = None
         args.extend(["-i", str(path)])
 
     extra_audio = options.external_audio_path is not None
-    extra_sub = options.subtitle_path is not None and not options.extract_subtitles
+    extra_sub = options.subtitle_path is not None and not options.extract_subtitles and not options.subtitle_burn_in
     extra_wm = options.watermark_path is not None and not options.gif_mode
+    extra_cover = options.cover_art_path is not None and not options.gif_mode
 
     if extra_audio:
         args.extend(["-i", str(options.external_audio_path.resolve())])
@@ -176,6 +193,8 @@ def build_ffmpeg_args(options: ConvertOptions, *, pass_number: int | None = None
         args.extend(["-i", str(options.subtitle_path.resolve())])
     if extra_wm:
         args.extend(["-i", str(options.watermark_path.resolve())])
+    if extra_cover:
+        args.extend(["-i", str(options.cover_art_path.resolve())])
 
     if end:
         args.extend(["-to", end])
@@ -194,11 +213,22 @@ def build_ffmpeg_args(options: ConvertOptions, *, pass_number: int | None = None
         return args
 
     if options.extract_subtitles:
-        args.extend(["-map", f"0:s:{options.video_stream or 0}", "-c:s", "srt"])
+        sub_idx = options.subtitle_stream if options.subtitle_stream is not None else 0
+        sub_codec = options.extract_subtitle_format.lower().lstrip(".")
+        if sub_codec not in {"srt", "ass", "vtt"}:
+            sub_codec = "srt"
+        args.extend(["-map", f"0:s:{sub_idx}", "-c:s", sub_codec])
         args.append(str(output_path))
         return args
 
-    idx_map = _input_index(extra_audio, extra_sub, extra_wm)
+    burn_path: str | None = None
+    if options.subtitle_burn_in:
+        if options.subtitle_path:
+            burn_path = str(options.subtitle_path.resolve())
+        elif options.subtitle_stream is not None:
+            burn_path = f"{options.input_path.resolve()}:si={options.subtitle_stream}"
+
+    idx_map = _input_index(extra_audio, extra_sub, extra_wm, extra_cover)
     merge_count = len(video_inputs)
     vf_parts = build_video_filters(
         scale=options.scale,
@@ -206,18 +236,21 @@ def build_ffmpeg_args(options: ConvertOptions, *, pass_number: int | None = None
         rotation=options.rotation,
         fps=options.fps,
         gif_mode=options.gif_mode,
+        deinterlace=options.deinterlace,
+        denoise=options.denoise,
+        subtitle_burn_in=burn_path,
     )
     vf_chain = join_filters(vf_parts)
-    use_complex = merge_count > 1 or extra_wm or vf_chain
+    use_complex = merge_count > 1 or extra_wm
 
-    if options.copy_streams and not use_complex:
+    if options.copy_streams and not use_complex and not vf_chain and not burn_path:
         v_idx = options.video_stream if options.video_stream is not None else 0
         args.extend(["-map", f"0:v:{v_idx}"])
-        if extra_audio:
+        if extra_audio or options.replace_audio:
             args.extend(["-map", f"{idx_map['audio']}:a:0"])
         elif options.audio_stream is not None:
             args.extend(["-map", f"0:a:{options.audio_stream}"])
-        else:
+        elif not options.replace_audio:
             args.extend(["-map", "0:a?"])
         args.extend(["-c", "copy"])
         args.append(str(output_path))
@@ -247,28 +280,42 @@ def build_ffmpeg_args(options: ConvertOptions, *, pass_number: int | None = None
         args.extend(["-filter_complex", filter_str, "-map", "[vfinal]"])
         if merge_count > 1:
             args.extend(["-map", "[a0]"])
-        elif extra_audio:
+        elif extra_audio or options.replace_audio:
             args.extend(["-map", f"{idx_map['audio']}:a:0"])
         elif options.audio_stream is not None:
             args.extend(["-map", f"0:a:{options.audio_stream}"])
-        else:
+        elif not options.replace_audio:
             args.extend(["-map", "0:a?"])
     else:
         v_idx = options.video_stream if options.video_stream is not None else 0
         args.extend(["-map", f"0:v:{v_idx}"])
-        if extra_audio:
+        if extra_audio or options.replace_audio:
             args.extend(["-map", f"{idx_map['audio']}:a:0"])
         elif options.audio_stream is not None:
             args.extend(["-map", f"0:a:{options.audio_stream}"])
-        else:
+        elif not options.replace_audio:
             args.extend(["-map", "0:a?"])
         if vf_chain:
             args.extend(["-vf", vf_chain])
+
+    if not options.replace_audio:
+        for track in options.extra_audio_tracks:
+            args.extend(["-map", f"0:a:{track}"])
 
     if extra_sub:
         sub_i = idx_map["sub"]
         sub_codec = "mov_text" if output_format in {"mp4", "mov", "m4v"} else "srt"
         args.extend(["-map", f"{sub_i}:s:0", "-c:s", sub_codec])
+    elif options.subtitle_stream is not None and not options.subtitle_burn_in and not options.subtitle_path:
+        sub_codec = "mov_text" if output_format in {"mp4", "mov", "m4v"} else "srt"
+        args.extend(["-map", f"0:s:{options.subtitle_stream}", "-c:s", sub_codec])
+
+    if extra_cover:
+        cover_i = idx_map["cover"]
+        args.extend(["-map", f"{cover_i}:v:0", "-c:v:1", "mjpeg", "-disposition:v:1", "attached_pic"])
+
+    if options.preserve_chapters and not options.strip_metadata:
+        args.extend(["-map_chapters", "0"])
 
     container = OUTPUT_PRESETS.get(output_format, OUTPUT_PRESETS["mp4"])
     vcodec = options.video_codec or str(container["vcodec"])
@@ -309,7 +356,12 @@ def build_ffmpeg_args(options: ConvertOptions, *, pass_number: int | None = None
         args.extend(["-preset", options.preset])
 
     if options.normalize_audio and acodec:
-        args.extend(["-af", "loudnorm"])
+        af = "loudnorm"
+        if options.audio_delay_ms:
+            af = f"adelay={options.audio_delay_ms}|{options.audio_delay_ms},{af}"
+        args.extend(["-af", af])
+    elif options.audio_delay_ms and acodec:
+        args.extend(["-af", f"adelay={options.audio_delay_ms}|{options.audio_delay_ms}"])
 
     if options.strip_metadata:
         args.extend(["-map_metadata", "-1"])

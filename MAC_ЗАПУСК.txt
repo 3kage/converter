@@ -1,0 +1,22 @@
+Video Converter — запуск на Mac (обхід блокування)
+=================================================
+
+1. Завантажте VideoConverter-mac.zip з GitHub Actions (Artifacts).
+
+2. Розархівуйте zip — з’явиться VideoConverter.app
+
+3. Відкрийте Terminal і виконайте:
+
+   xattr -cr ~/Downloads/VideoConverter.app
+   open ~/Downloads/VideoConverter.app
+
+   (якщо .app не в Downloads — замініть шлях)
+
+4. Якщо macOS все одно блокує:
+   - ПКМ по VideoConverter.app → Open (Відкрити) → Open
+
+5. У програмі: Обрати... → вибрати відео → Конвертувати
+
+Примітка: FFmpeg уже всередині програми, окремо ставити не потрібно.
+
+Архів: https://github.com/3kage/converter/actions

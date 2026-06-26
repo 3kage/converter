@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import __version__
 from .convert import ConvertOptions, convert_video, list_supported_formats
+from .presets import list_quality_presets
 from .ffmpeg_utils import FFmpegNotFoundError
 from .probe import analyze_file, render_media_info
 
@@ -117,11 +118,22 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Показати команду ffmpeg без виконання",
     )
-    convert_parser.add_argument(
-        "--show-info",
-        action="store_true",
-        help="Показати інформацію про вхідний файл перед конвертацією",
-    )
+    convert_parser.add_argument("--quality-preset", choices=list_quality_presets(), default=None)
+    convert_parser.add_argument("--scale", default=None, help="Роздільність, напр. 1920:1080")
+    convert_parser.add_argument("--start", dest="start_time", default=None, help="Початок HH:MM:SS")
+    convert_parser.add_argument("--end", dest="end_time", default=None, help="Кінець HH:MM:SS")
+    convert_parser.add_argument("--hw", dest="hardware_encode", action="store_true", help="GPU кодування")
+    convert_parser.add_argument("--extract-audio", action="store_true")
+    convert_parser.add_argument("--extract-subtitles", action="store_true")
+    convert_parser.add_argument("--external-audio", type=Path, default=None)
+    convert_parser.add_argument("--subtitle", type=Path, default=None)
+    convert_parser.add_argument("--normalize-audio", action="store_true")
+    convert_parser.add_argument("--gif", dest="gif_mode", action="store_true")
+    convert_parser.add_argument("--strip-metadata", action="store_true")
+    convert_parser.add_argument("--metadata-title", default=None)
+    convert_parser.add_argument("--metadata-author", default=None)
+    convert_parser.add_argument("--no-verify", action="store_true")
+    convert_parser.add_argument("--show-info", action="store_true", help="Показати інформацію про файл")
     convert_parser.set_defaults(func=cmd_convert)
 
     formats_parser = subparsers.add_parser(
@@ -195,6 +207,21 @@ def cmd_convert(args: argparse.Namespace) -> int:
         copy_streams=args.copy,
         overwrite=args.overwrite,
         dry_run=args.dry_run,
+        quality_preset_id=args.quality_preset,
+        scale=args.scale,
+        start_time=args.start_time,
+        end_time=args.end_time,
+        hardware_encode=args.hardware_encode,
+        extract_audio=args.extract_audio,
+        extract_subtitles=args.extract_subtitles,
+        external_audio_path=args.external_audio,
+        subtitle_path=args.subtitle,
+        normalize_audio=args.normalize_audio,
+        gif_mode=args.gif_mode,
+        metadata_title=args.metadata_title,
+        metadata_author=args.metadata_author,
+        strip_metadata=args.strip_metadata,
+        verify_output=not args.no_verify,
     )
 
     output_path, cmd = convert_video(options)

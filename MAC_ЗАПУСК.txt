@@ -1,22 +1,29 @@
-Video Converter — запуск на Mac (обхід блокування)
-=================================================
+Video Converter — запуск на Mac
+================================
 
-1. Завантажте VideoConverter-mac.zip з GitHub Actions (Artifacts).
+ВАЖЛИВО: якщо macOS пише «приложение повреждено» — файл НЕ зламаний.
+Це блокування безпеки (Gatekeeper), особливо після завантаження через
+Telegram, браузер або месенджер.
 
-2. Розархівуйте zip — з’явиться VideoConverter.app
+Крок 1. Розархівуйте VideoConverter-mac.zip
+         → з’явиться VideoConverter.app
 
-3. Відкрийте Terminal і виконайте:
+Крок 2. Відкрийте Terminal (Термінал) і виконайте:
 
-   xattr -cr ~/Downloads/VideoConverter.app
-   open ~/Downloads/VideoConverter.app
+    xattr -cr ~/Downloads/VideoConverter.app
+    open ~/Downloads/VideoConverter.app
 
-   (якщо .app не в Downloads — замініть шлях)
+    (замініть шлях, якщо .app лежить не в Downloads)
 
-4. Якщо macOS все одно блокує:
-   - ПКМ по VideoConverter.app → Open (Відкрити) → Open
+Крок 3. Якщо все одно блокує:
+    ПКМ по VideoConverter.app → Open (Відкрити) → Open
 
-5. У програмі: Обрати... → вибрати відео → Конвертувати
+Крок 4. У програмі: Обрати... → відео → Конвертувати
 
-Примітка: FFmpeg уже всередині програми, окремо ставити не потрібно.
+FFmpeg уже всередині — окремо ставити не потрібно.
 
-Архів: https://github.com/3kage/converter/actions
+Завантаження: https://github.com/3kage/converter/releases/latest
+(краще звідси, ніж через Telegram)
+
+Повністю прибрати це попередження можна лише з Apple Developer ($99/рік)
+та підписом/нотаризацією — без MacBook у розробника це недоступно.

@@ -1,0 +1,16 @@
+Video Converter — macOS install
+===============================
+
+If macOS says the app is "damaged" — it is NOT broken.
+Gatekeeper blocks unsigned apps, especially after Telegram/browser download.
+
+1. Unzip VideoConverter-mac.zip → VideoConverter.app
+
+2. Terminal:
+
+    xattr -cr ~/Downloads/VideoConverter.app
+    open ~/Downloads/VideoConverter.app
+
+3. If still blocked: Right-click VideoConverter.app → Open → Open
+
+Download: https://github.com/3kage/converter/releases/latest

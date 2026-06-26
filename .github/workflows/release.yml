@@ -39,8 +39,11 @@ jobs:
           ./build.sh
       - name: Zip
         run: |
+          cp "$GITHUB_WORKSPACE/MAC_ЗАПУСК.txt" dist/
+          cp "$GITHUB_WORKSPACE/MAC_INSTALL_EN.txt" dist/
           cd dist
           ditto -c -k --sequesterRsrc --keepParent VideoConverter.app VideoConverter-mac.zip
+          zip -u VideoConverter-mac.zip MAC_ЗАПУСК.txt MAC_INSTALL_EN.txt
       - uses: actions/upload-artifact@v4
         with:
           name: release-macos
@@ -85,3 +88,16 @@ jobs:
             artifacts/release-macos/VideoConverter-mac.zip
             artifacts/release-linux/VideoConverter-linux.zip
           generate_release_notes: true
+          body: |
+            ## macOS — if app shows "damaged" / «повреждено»
+
+            The app is **not broken**. Run in Terminal (adjust path):
+
+            ```bash
+            xattr -cr ~/Downloads/VideoConverter.app
+            open ~/Downloads/VideoConverter.app
+            ```
+
+            Or: Right-click the app → **Open** → **Open**.
+
+            See `MAC_ЗАПУСК.txt` inside the macOS zip.

@@ -49,10 +49,12 @@ class VideoConverterApp(_AppBase):
         self.i18n = I18n(settings.lang)
         self.title(f"{self.i18n.t('app_title')} v{__version__}")
         self.geometry("980x860")
-        self.minsize(900, 740)
+        self.minsize(700, 480)
 
         self._i18n_widgets: list[tuple[object, str, str]] = []
         self._notebook_tabs: list[tuple[ttk.Frame, str]] = []
+        self._scroll_canvases: list[tk.Canvas] = []
+        self._scroll_bindings: list[tuple[ttk.Frame, object]] = []
         self._help_menu: tk.Menu | None = None
         self._menu: tk.Menu | None = None
 
@@ -222,6 +224,14 @@ class VideoConverterApp(_AppBase):
             self._notebook.add(tab, text=self._t(name))
             self._notebook_tabs.append((tab, name))
 
+        self._tab_convert_body = self._make_scrollable(self._tab_convert)
+        self._tab_audio_body = self._make_scrollable(self._tab_audio)
+        self._tab_trim_body = self._make_scrollable(self._tab_trim)
+        self._tab_advanced_body = self._make_scrollable(self._tab_advanced)
+        self._tab_batch_body = self._make_scrollable(self._tab_batch)
+        self._tab_watch_body = self._make_scrollable(self._tab_watch)
+        self._tab_history_body = self._make_scrollable(self._tab_history)
+
         self._build_convert_tab()
         self._build_audio_tab()
         self._build_trim_tab()
@@ -229,6 +239,7 @@ class VideoConverterApp(_AppBase):
         self._build_batch_tab()
         self._build_watch_tab()
         self._build_history_tab()
+        self._bind_scroll_wheel_targets()
 
         bottom = ttk.Frame(self)
         bottom.pack(fill=tk.X, padx=10, pady=4)
@@ -272,8 +283,56 @@ class VideoConverterApp(_AppBase):
         menu.add_cascade(label=self._t("help"), menu=self._help_menu)
         self.config(menu=menu)
 
+    def _make_scrollable(self, parent: ttk.Frame) -> ttk.Frame:
+        parent.rowconfigure(0, weight=1)
+        parent.columnconfigure(0, weight=1)
+        canvas = tk.Canvas(parent, highlightthickness=0, borderwidth=0)
+        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        content = ttk.Frame(canvas)
+        window_id = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        def _sync_scroll_region(_event: tk.Event | None = None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _sync_width(event: tk.Event) -> None:
+            canvas.itemconfigure(window_id, width=event.width)
+
+        def _scroll(event: tk.Event) -> None:
+            if event.delta:
+                canvas.yview_scroll(int(-event.delta / 120), "units")
+            elif event.num == 4:
+                canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                canvas.yview_scroll(1, "units")
+
+        content.bind("<Configure>", _sync_scroll_region)
+        canvas.bind("<Configure>", _sync_width)
+        for widget in (canvas, content):
+            widget.bind("<MouseWheel>", _scroll)
+            widget.bind("<Button-4>", _scroll)
+            widget.bind("<Button-5>", _scroll)
+
+        self._scroll_canvases.append(canvas)
+        self._scroll_bindings.append((content, _scroll))
+        return content
+
+    def _bind_scroll_wheel_targets(self) -> None:
+        def bind_recursive(widget: tk.Misc, handler: object) -> None:
+            widget.bind("<MouseWheel>", handler, add="+")
+            widget.bind("<Button-4>", handler, add="+")
+            widget.bind("<Button-5>", handler, add="+")
+            for child in widget.winfo_children():
+                bind_recursive(child, handler)
+
+        for content, handler in self._scroll_bindings:
+            bind_recursive(content, handler)
+
     def _build_convert_tab(self) -> None:
-        p = self._tab_convert
+        p = self._tab_convert_body
         inp = ttk.LabelFrame(p, text=self._t("input_file"))
         inp.pack(fill=tk.X, padx=8, pady=6)
         self._add_i18n(inp, "input_file", "label")
@@ -287,7 +346,7 @@ class VideoConverterApp(_AppBase):
         self._add_i18n(drop_lbl, "drop_hint")
 
         body = ttk.Frame(p)
-        body.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
+        body.pack(fill=tk.X, padx=8, pady=4)
         prev_frame = ttk.LabelFrame(body, text=self._t("preview"))
         prev_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
         self._add_i18n(prev_frame, "preview", "label")
@@ -386,7 +445,7 @@ class VideoConverterApp(_AppBase):
         ttk.Button(out_row, text="...", width=4, command=self._browse_output).pack(side=tk.LEFT)
 
     def _build_audio_tab(self) -> None:
-        p = self._tab_audio
+        p = self._tab_audio_body
         f = ttk.LabelFrame(p, text=self._t("tab_audio"))
         f.pack(fill=tk.X, padx=8, pady=8)
         self._add_i18n(f, "tab_audio", "label")
@@ -451,7 +510,7 @@ class VideoConverterApp(_AppBase):
         ttk.Entry(row7, textvariable=self._extra_audio_tracks).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
 
     def _build_trim_tab(self) -> None:
-        p = self._tab_trim
+        p = self._tab_trim_body
         f = ttk.LabelFrame(p, text=self._t("tab_trim"))
         f.pack(fill=tk.X, padx=8, pady=8)
         self._add_i18n(f, "tab_trim", "label")
@@ -513,12 +572,12 @@ class VideoConverterApp(_AppBase):
         ).pack(anchor=tk.W, padx=8, pady=4)
 
     def _build_advanced_tab(self) -> None:
-        p = self._tab_advanced
+        p = self._tab_advanced_body
         merge_frame = ttk.LabelFrame(p, text=self._t("merge_files"))
-        merge_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        merge_frame.pack(fill=tk.X, padx=8, pady=8)
         self._add_i18n(merge_frame, "merge_files", "label")
         merge_body = ttk.Frame(merge_frame)
-        merge_body.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        merge_body.pack(fill=tk.X, padx=8, pady=8)
         self._merge_listbox = tk.Listbox(merge_body, height=8)
         self._merge_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         merge_sb = ttk.Scrollbar(merge_body, orient=tk.VERTICAL, command=self._merge_listbox.yview)
@@ -561,12 +620,12 @@ class VideoConverterApp(_AppBase):
         ).pack(anchor=tk.W, padx=8, pady=(0, 8))
 
     def _build_batch_tab(self) -> None:
-        p = self._tab_batch
+        p = self._tab_batch_body
         f = ttk.LabelFrame(p, text=self._t("batch_queue"))
-        f.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        f.pack(fill=tk.X, padx=8, pady=8)
         self._add_i18n(f, "batch_queue", "label")
         self._batch_list = tk.Listbox(f, height=12)
-        self._batch_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0), pady=8)
+        self._batch_list.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0), pady=8)
         sb = ttk.Scrollbar(f, orient=tk.VERTICAL, command=self._batch_list.yview)
         self._batch_list.configure(yscrollcommand=sb.set)
         sb.pack(side=tk.LEFT, fill=tk.Y, pady=8)
@@ -602,7 +661,7 @@ class VideoConverterApp(_AppBase):
         ttk.Button(row, text="...", width=4, command=self._browse_batch_dir).pack(side=tk.LEFT)
 
     def _build_watch_tab(self) -> None:
-        p = self._tab_watch
+        p = self._tab_watch_body
         f = ttk.LabelFrame(p, text=self._t("tab_watch"))
         f.pack(fill=tk.X, padx=8, pady=8)
         self._add_i18n(f, "tab_watch", "label")
@@ -625,13 +684,13 @@ class VideoConverterApp(_AppBase):
         ttk.Button(row3, text="Stop", command=self._watch_stop).pack(side=tk.LEFT)
 
     def _build_history_tab(self) -> None:
-        p = self._tab_history
+        p = self._tab_history_body
         cols = ("time", "input", "output")
         self._history_tree = ttk.Treeview(p, columns=cols, show="headings", height=16)
         self._history_tree.heading("time", text=self._t("history_col_time"))
         self._history_tree.heading("input", text=self._t("history_col_in"))
         self._history_tree.heading("output", text=self._t("history_col_out"))
-        self._history_tree.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        self._history_tree.pack(fill=tk.X, padx=8, pady=8)
         self._history_tree.bind("<Double-1>", self._history_double_click)
         hist_btns = ttk.Frame(p)
         hist_btns.pack(pady=4)
@@ -661,6 +720,8 @@ class VideoConverterApp(_AppBase):
             self._info_text.configure(bg="#2d2d2d", fg=fg, insertbackground=fg)
             self._batch_list.configure(bg="#2d2d2d", fg=fg)
             self._merge_listbox.configure(bg="#2d2d2d", fg=fg)
+            for canvas in self._scroll_canvases:
+                canvas.configure(bg=bg)
         else:
             style.theme_use("vista" if "vista" in style.theme_names() else "default")
             style.configure("Treeview", background="white", foreground="black", fieldbackground="white")
@@ -668,6 +729,8 @@ class VideoConverterApp(_AppBase):
             self._info_text.configure(bg="white", fg="black", insertbackground="black")
             self._batch_list.configure(bg="white", fg="black")
             self._merge_listbox.configure(bg="white", fg="black")
+            for canvas in self._scroll_canvases:
+                canvas.configure(bg="SystemButtonFace")
 
     def _on_dark_toggle(self) -> None:
         self._apply_theme()

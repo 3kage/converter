@@ -19,7 +19,12 @@ from .presets import RESOLUTIONS, list_quality_presets
 from .preview import generate_preview
 from .probe import analyze_file, render_media_info
 from .streams import list_selectable_streams
-from .updater import check_for_updates, open_latest_release_download
+from .updater import (
+    can_auto_update,
+    check_for_updates,
+    install_latest_update,
+    open_latest_release_download,
+)
 
 try:
     from tkinterdnd2 import TkinterDnD
@@ -91,10 +96,13 @@ class VideoConverterApp(_AppBase):
         self._media_duration: float | None = None
         self._batch_files: list[Path] = []
         self._merge_files: list[Path] = []
+        self._check_updates_on_startup = tk.BooleanVar(value=True)
+        self._update_in_progress = False
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._check_ffmpeg)
+        self.after(1500, self._startup_update_check)
         bind_file_drop(self, self._on_drop)
 
     def _t(self, key: str) -> str:
@@ -122,8 +130,9 @@ class VideoConverterApp(_AppBase):
         self._history_tree.heading("output", text=self._t("history_col_out"))
         if self._help_menu is not None:
             self._help_menu.entryconfigure(0, label=self._t("check_updates"))
-            self._help_menu.entryconfigure(1, label=self._t("download_update"))
-            self._help_menu.entryconfigure(2, label=self._t("open_log_folder"))
+            self._help_menu.entryconfigure(1, label=self._t("install_update"))
+            self._help_menu.entryconfigure(2, label=self._t("download_update"))
+            self._help_menu.entryconfigure(3, label=self._t("open_log_folder"))
 
     def _build_ui(self) -> None:
         self._build_menu()
@@ -138,6 +147,10 @@ class VideoConverterApp(_AppBase):
         lang_cb = ttk.Combobox(top, textvariable=self._lang, values=["uk", "en"], width=5, state="readonly")
         lang_cb.pack(side=tk.LEFT)
         lang_cb.bind("<<ComboboxSelected>>", lambda _e: self._change_language())
+        self._add_i18n(
+            ttk.Checkbutton(top, text="", variable=self._check_updates_on_startup),
+            "update_on_startup",
+        ).pack(side=tk.LEFT, padx=(16, 0))
 
         self._notebook = ttk.Notebook(self)
         self._notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
@@ -200,6 +213,7 @@ class VideoConverterApp(_AppBase):
         menu = tk.Menu(self)
         self._help_menu = tk.Menu(menu, tearoff=0)
         self._help_menu.add_command(label=self._t("check_updates"), command=self._check_updates)
+        self._help_menu.add_command(label=self._t("install_update"), command=self._install_update)
         self._help_menu.add_command(label=self._t("download_update"), command=self._download_update)
         self._help_menu.add_command(label=self._t("open_log_folder"), command=self._open_log_folder)
         menu.add_cascade(label="Help", menu=self._help_menu)
@@ -847,12 +861,90 @@ class VideoConverterApp(_AppBase):
         def worker() -> None:
             try:
                 available, latest, url = check_for_updates()
-                msg = f"Latest: {latest}\n{url}" if available else f"You have the latest ({__version__})."
-                self.after(0, lambda: messagebox.showinfo(self._t("check_updates"), msg))
+                if available:
+                    self.after(0, lambda: self._prompt_update(latest, url))
+                else:
+                    msg = self._t("update_latest").format(version=__version__)
+                    self.after(0, lambda: messagebox.showinfo(self._t("check_updates"), msg))
             except Exception as exc:
                 self.after(0, lambda: messagebox.showerror(self._t("error"), str(exc)))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _startup_update_check(self) -> None:
+        if not self._check_updates_on_startup.get() or self._update_in_progress:
+            return
+
+        def worker() -> None:
+            try:
+                available, latest, url = check_for_updates()
+                if available:
+                    self.after(0, lambda: self._prompt_update(latest, url))
+            except Exception:
+                return
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _prompt_update(self, latest: str, url: str) -> None:
+        if self._update_in_progress:
+            return
+        if not messagebox.askyesno(
+            self._t("check_updates"),
+            self._t("update_available").format(latest=latest) + f"\n\n{url}",
+        ):
+            return
+        self._install_update()
+
+    def _install_update(self) -> None:
+        if self._update_in_progress:
+            return
+        if self._worker and self._worker.is_alive():
+            messagebox.showwarning(self._t("error"), self._t("update_busy"))
+            return
+        if not can_auto_update():
+            if messagebox.askyesno(self._t("install_update"), self._t("update_dev_mode")):
+                try:
+                    open_latest_release_download()
+                except Exception as exc:
+                    messagebox.showerror(self._t("error"), str(exc))
+            return
+
+        self._update_in_progress = True
+        self._convert_btn.configure(state=tk.DISABLED)
+        self._progress["value"] = 0
+
+        def worker() -> None:
+            try:
+                def on_progress(done: int, total: int) -> None:
+                    pct = int(done * 100 / total) if total else 0
+                    self.after(
+                        0,
+                        lambda p=pct: (
+                            self._progress.configure(value=p),
+                            self._status.set(self._t("update_downloading").format(pct=p)),
+                        ),
+                    )
+
+                self.after(0, lambda: self._status.set(self._t("update_downloading").format(pct=0)))
+                install_latest_update(progress=on_progress)
+                self.after(0, self._finish_update_install)
+            except Exception as exc:
+                self.after(0, lambda: self._fail_update_install(str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_update_install(self) -> None:
+        self._status.set(self._t("update_installing"))
+        self._progress["value"] = 100
+        self.update_idletasks()
+        self.after(300, self.destroy)
+
+    def _fail_update_install(self, message: str) -> None:
+        self._update_in_progress = False
+        self._convert_btn.configure(state=tk.NORMAL)
+        self._progress["value"] = 0
+        self._status.set(self._t("ready"))
+        messagebox.showerror(self._t("error"), message)
 
     def _download_update(self) -> None:
         try:

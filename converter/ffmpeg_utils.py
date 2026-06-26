@@ -35,6 +35,12 @@ def _resolve_tool(name: str) -> str:
             return str(candidate)
 
     path = shutil.which(name)
+    if path is None and sys.platform == "darwin":
+        for prefix in ("/opt/homebrew/bin", "/usr/local/bin"):
+            candidate = Path(prefix) / name
+            if candidate.is_file():
+                return str(candidate)
+
     if path is None:
         raise FFmpegNotFoundError(
             f"Утиліту «{name}» не знайдено. Встановіть FFmpeg і додайте його до PATH.\n"

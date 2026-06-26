@@ -1,16 +1,53 @@
-Video Converter — macOS install
-===============================
+Video Converter — macOS install guide (step by step)
+=====================================================
 
-If macOS says the app is "damaged" — it is NOT broken.
-Gatekeeper blocks unsigned apps, especially after Telegram/browser download.
+Read this BEFORE first launch, especially if macOS says the app is "damaged".
 
-1. Unzip VideoConverter-mac.zip → VideoConverter.app
 
-2. Terminal:
+WHAT YOU NEED
+-------------
+  • macOS 11+ (Big Sur or newer)
+  • VideoConverter-mac.zip from GitHub Releases
 
-    xattr -cr ~/Downloads/VideoConverter.app
-    open ~/Downloads/VideoConverter.app
 
-3. If still blocked: Right-click VideoConverter.app → Open → Open
+DOWNLOAD (recommended)
+----------------------
+  https://github.com/3kage/converter/releases/latest
+  Download **VideoConverter-mac.zip** under Assets.
+
+
+UNZIP
+-----
+  1. Open Finder → Downloads
+  2. Double-click VideoConverter-mac.zip
+  3. You get **VideoConverter.app**
+
+
+"APP IS DAMAGED" — DO NOT MOVE TO TRASH
+----------------------------------------
+  The file is NOT broken. macOS blocks unsigned apps (common after Telegram).
+
+  Terminal (easiest):
+  1. Open Terminal (Cmd+Space → type Terminal)
+  2. Run (adjust path if needed):
+
+     xattr -cr ~/Downloads/VideoConverter.app
+     open ~/Downloads/VideoConverter.app
+
+  Tip: type `xattr -cr ` with a space, drag VideoConverter.app into Terminal, Enter.
+
+  Without Terminal:
+  Right-click VideoConverter.app → Open → Open (again in the dialog).
+
+
+USE THE APP
+-----------
+  Browse → pick video → Convert. FFmpeg is bundled.
+
+
+UPDATES
+-------
+  Help menu → Check for updates / Install update
+
 
 Download: https://github.com/3kage/converter/releases/latest

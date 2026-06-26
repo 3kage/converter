@@ -20,13 +20,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install FFmpeg
-        run: brew install ffmpeg
-
       - name: Build VideoConverter.app
         run: |
           chmod +x build.sh
           ./build.sh
+
+      - name: Smoke test app bundle
+        run: |
+          APP_BIN="dist/VideoConverter.app/Contents/MacOS/VideoConverter"
+          FFMPEG="dist/VideoConverter.app/Contents/MacOS/ffmpeg/ffmpeg"
+          test -x "$APP_BIN"
+          test -x "$FFMPEG"
+          "$FFMPEG" -version
+          "$FFMPEG" -f lavfi -i testsrc=d=1:s=320x240:r=24 -f null -
 
       - name: Create zip archive
         run: |

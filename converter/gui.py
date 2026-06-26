@@ -34,6 +34,18 @@ class VideoConverterApp(tk.Tk):
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.after(100, self._check_ffmpeg)
+
+    def _check_ffmpeg(self) -> None:
+        try:
+            from .ffmpeg_utils import ensure_ffmpeg
+
+            ensure_ffmpeg()
+        except FFmpegNotFoundError as exc:
+            messagebox.showwarning(
+                "FFmpeg не знайдено",
+                f"{exc}\n\nНа macOS встановіть: brew install ffmpeg",
+            )
 
     def _build_ui(self) -> None:
         padding = {"padx": 12, "pady": 6}

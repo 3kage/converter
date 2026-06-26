@@ -16,33 +16,41 @@ python3 -m pip install -r requirements-dev.txt -q
 FFMPEG_DIR="$PROJECT_ROOT/ffmpeg"
 mkdir -p "$FFMPEG_DIR"
 
-resolve_tool() {
-  command -v "$1" 2>/dev/null || true
-}
+download_static_ffmpeg() {
+  local arch_tag extract_dir tarball_url
+  if [[ "$(uname -m)" == "arm64" ]]; then
+    arch_tag="macosarm64"
+  else
+    arch_tag="macos64"
+  fi
 
-FFMPEG_PATH="$(resolve_tool ffmpeg)"
-FFPROBE_PATH="$(resolve_tool ffprobe)"
+  extract_dir="$(mktemp -d /tmp/ffmpeg-build.XXXXXX)"
+  tarball_url="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-${arch_tag}-gpl.tar.xz"
 
-if [[ -z "$FFMPEG_PATH" || -z "$FFPROBE_PATH" ]]; then
-  echo "FFmpeg not found. Installing via Homebrew..."
-  if ! command -v brew >/dev/null 2>&1; then
-    echo "Homebrew is required. Install from https://brew.sh"
+  echo "Downloading static FFmpeg (${arch_tag})..."
+  curl -L -o "${extract_dir}/ffmpeg.tar.xz" "$tarball_url"
+  tar -xJf "${extract_dir}/ffmpeg.tar.xz" -C "$extract_dir"
+
+  local ffmpeg_bin ffprobe_bin
+  ffmpeg_bin="$(find "$extract_dir" -type f -name ffmpeg | head -n 1)"
+  ffprobe_bin="$(find "$extract_dir" -type f -name ffprobe | head -n 1)"
+
+  if [[ -z "$ffmpeg_bin" || -z "$ffprobe_bin" ]]; then
+    echo "Failed to find ffmpeg/ffprobe in downloaded archive."
     exit 1
   fi
-  brew install ffmpeg
-  FFMPEG_PATH="$(resolve_tool ffmpeg)"
-  FFPROBE_PATH="$(resolve_tool ffprobe)"
-fi
 
-if [[ -z "$FFMPEG_PATH" || -z "$FFPROBE_PATH" ]]; then
-  echo "FFmpeg not found. Install with: brew install ffmpeg"
-  exit 1
-fi
+  cp "$ffmpeg_bin" "$FFMPEG_DIR/ffmpeg"
+  cp "$ffprobe_bin" "$FFMPEG_DIR/ffprobe"
+  chmod +x "$FFMPEG_DIR/ffmpeg" "$FFMPEG_DIR/ffprobe"
+  rm -rf "$extract_dir"
+}
 
-echo "Copying FFmpeg binaries..."
-cp "$FFMPEG_PATH" "$FFMPEG_DIR/ffmpeg"
-cp "$FFPROBE_PATH" "$FFMPEG_DIR/ffprobe"
-chmod +x "$FFMPEG_DIR/ffmpeg" "$FFMPEG_DIR/ffprobe"
+download_static_ffmpeg
+
+echo "Verifying bundled FFmpeg..."
+"$FFMPEG_DIR/ffmpeg" -version >/dev/null
+"$FFMPEG_DIR/ffprobe" -version >/dev/null
 
 echo "Building VideoConverter.app with PyInstaller..."
 python3 -m PyInstaller VideoConverter-mac.spec --noconfirm --clean
@@ -53,6 +61,10 @@ mkdir -p "$TARGET_FFMPEG"
 cp "$FFMPEG_DIR/ffmpeg" "$TARGET_FFMPEG/ffmpeg"
 cp "$FFMPEG_DIR/ffprobe" "$TARGET_FFMPEG/ffprobe"
 chmod +x "$TARGET_FFMPEG/ffmpeg" "$TARGET_FFMPEG/ffprobe"
+
+echo "Smoke test: bundled FFmpeg inside app..."
+"$TARGET_FFMPEG/ffmpeg" -version >/dev/null
+"$TARGET_FFMPEG/ffprobe" -version >/dev/null
 
 echo ""
 echo "Build complete."

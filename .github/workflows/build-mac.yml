@@ -1,0 +1,41 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install FFmpeg
+        run: brew install ffmpeg
+
+      - name: Build VideoConverter.app
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Create zip archive
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent VideoConverter.app VideoConverter-mac.zip
+
+      - name: Upload macOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: VideoConverter-macOS
+          path: dist/VideoConverter-mac.zip
+          retention-days: 30

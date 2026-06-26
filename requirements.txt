@@ -1,0 +1,14 @@
+# Залежності не потрібні — використовується лише стандартна бібліотека Python.
+# Потрібні зовнішні утиліти: ffmpeg та ffprobe (частина пакета FFmpeg).
+#
+# GUI (Python):
+#   Windows: python video_converter_gui.py
+#   macOS:   ./run_gui.sh
+#
+# Збірка exe / app:
+#   Windows: powershell -ExecutionPolicy Bypass -File build.ps1
+#   macOS:   chmod +x build.sh && ./build.sh
+#
+# Windows: winget install Gyan.FFmpeg
+# macOS:   brew install ffmpeg
+# Linux:   sudo apt install ffmpeg

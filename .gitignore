@@ -1,0 +1,28 @@
+# Build artifacts
+dist/
+build/
+ffmpeg/
+*.egg-info/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Video test files
+*.mov
+*.mp4
+*.mkv
+*.avi
+*.webm
+
+# IDE
+.idea/
+.vscode/

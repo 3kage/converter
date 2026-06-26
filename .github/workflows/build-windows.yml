@@ -1,0 +1,41 @@
+name: Build Windows App
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install FFmpeg
+        run: choco install ffmpeg -y
+
+      - name: Build VideoConverter.exe
+        shell: pwsh
+        run: |
+          ./build.ps1
+
+      - name: Create zip archive
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/VideoConverter -DestinationPath dist/VideoConverter-windows.zip -Force
+
+      - name: Upload Windows app
+        uses: actions/upload-artifact@v4
+        with:
+          name: VideoConverter-Windows
+          path: dist/VideoConverter-windows.zip
+          retention-days: 30

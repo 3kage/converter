@@ -1,0 +1,6 @@
+# Build tools (local or GitHub Actions):
+#   Windows: powershell -ExecutionPolicy Bypass -File build.ps1
+#   macOS:   chmod +x build.sh && ./build.sh
+#   CI:      push to GitHub -> Actions builds .app and .exe automatically
+
+pyinstaller>=6.0

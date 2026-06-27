@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import ttk
 
@@ -19,9 +20,9 @@ def _theme_json_path() -> Path:
 
 
 THEME_JSON = _theme_json_path()
-CORNER_RADIUS = 12
+CORNER_RADIUS = 10
 CORNER_RADIUS_SM = 8
-CORNER_RADIUS_LG = 16
+CORNER_RADIUS_LG = 12
 PAD = 10
 PAD_SM = 5
 PAD_LG = 12
@@ -47,53 +48,55 @@ TAB_ICONS: dict[str, str] = {
     "tab_history": "↺",
 }
 
-# Cyberpunk palette — (light, dark)
-_ACCENT = ("#0088bb", "#00eaff")
-_ACCENT_HOVER = ("#006699", "#00cce6")
-_ACCENT_GLOW = ("#ff0088", "#ff00aa")
-_MUTED = ("#5a6a7a", "#7aa0b0")
-_SURFACE = ("#ffffff", "#12121f")
-_SURFACE_ALT = ("#e8f8ff", "#0a1520")
-_SIDEBAR = ("#eef6ff", "#080810")
-_NEON_BORDER = ("#00aacc", "#00eaff")
-_TABLE_SHELL = ("#f4fbff", "#06060e")
+# Classic minimal palette — (light, dark)
+_ACCENT = ("#0071e3", "#0a84ff")
+_ACCENT_HOVER = ("#0077ed", "#409cff")
+_MUTED = ("#86868b", "#98989d")
+_TEXT = ("#1d1d1f", "#f5f5f7")
+_SURFACE = ("#ffffff", "#2c2c2e")
+_SURFACE_ALT = ("#f5f5f7", "#1c1c1e")
+_SIDEBAR = ("#fafafa", "#242426")
+_BORDER = ("#d2d2d7", "#38383a")
+_TABLE_SHELL = ("#ffffff", "#2c2c2e")
 
-_NAV_ACTIVE_FG = _ACCENT
-_NAV_ACTIVE_TEXT = ("#ffffff", "#001018")
-_NAV_ACTIVE_HOVER = _ACCENT_HOVER
+_NAV_ACTIVE_FG = ("#e5e5ea", "#3a3a3c")
+_NAV_ACTIVE_TEXT = _TEXT
+_NAV_ACTIVE_HOVER = ("#d1d1d6", "#48484a")
 _NAV_IDLE_FG = "transparent"
-_NAV_IDLE_TEXT = ("#1a3040", "#9ec8d8")
-_NAV_IDLE_HOVER = ("#d0f0ff", "#141428")
+_NAV_IDLE_TEXT = ("#6e6e73", "#98989d")
+_NAV_IDLE_HOVER = ("#f0f0f5", "#2c2c2e")
 
-_BTN_OUTLINE_TEXT = ("#005577", "#00eaff")
-_BTN_OUTLINE_BORDER = ("#00aacc", "#00eaff")
-_BTN_OUTLINE_HOVER = ("#ccf0ff", "#141432")
-_BTN_OUTLINE_TEXT_DISABLED = ("#94a3b8", "#4a6070")
+_BTN_OUTLINE_TEXT = ("#1d1d1f", "#f5f5f7")
+_BTN_OUTLINE_BORDER = _BORDER
+_BTN_OUTLINE_HOVER = ("#f0f0f5", "#3a3a3c")
+_BTN_OUTLINE_TEXT_DISABLED = ("#aeaeb2", "#636366")
 
-TREE_STYLE = "Cyber.Treeview"
+TREE_STYLE = "Minimal.Treeview"
+_TAB_ANIM_MS = 14
+_TAB_ANIM_STEPS = 12
 
 
 def data_palette(*, dark: bool) -> dict[str, str]:
     if dark:
         return {
-            "row": "#0e0e18",
-            "row_alt": "#141425",
-            "fg": "#b8ecff",
-            "heading_bg": "#0a1525",
-            "heading_fg": "#00eaff",
-            "select_bg": "#003344",
-            "select_fg": "#00ffff",
-            "border": "#00eaff",
+            "row": "#1c1c1e",
+            "row_alt": "#242426",
+            "fg": "#f5f5f7",
+            "heading_bg": "#2c2c2e",
+            "heading_fg": "#f5f5f7",
+            "select_bg": "#0a84ff",
+            "select_fg": "#ffffff",
+            "border": "#48484a",
         }
     return {
-        "row": "#f8fdff",
-        "row_alt": "#eef8ff",
-        "fg": "#0a2030",
-        "heading_bg": "#d0f0ff",
-        "heading_fg": "#006688",
-        "select_bg": "#00ccee",
-        "select_fg": "#001018",
-        "border": "#00aacc",
+        "row": "#ffffff",
+        "row_alt": "#f5f5f7",
+        "fg": "#1d1d1f",
+        "heading_bg": "#f5f5f7",
+        "heading_fg": "#1d1d1f",
+        "select_bg": "#0071e3",
+        "select_fg": "#ffffff",
+        "border": "#d2d2d7",
     }
 
 
@@ -122,7 +125,7 @@ def apply_data_widgets_theme(root: tk.Misc, *, dark: bool) -> None:
         foreground=c["fg"],
         fieldbackground=c["row"],
         borderwidth=0,
-        rowheight=30,
+        rowheight=28,
         font=FONT_MONO,
     )
     style.configure(
@@ -132,14 +135,13 @@ def apply_data_widgets_theme(root: tk.Misc, *, dark: bool) -> None:
         borderwidth=0,
         relief="flat",
         font=("Segoe UI", 11, "bold"),
-        padding=(10, 8),
+        padding=(8, 6),
     )
     style.map(
         TREE_STYLE,
         background=[("selected", c["select_bg"])],
         foreground=[("selected", c["select_fg"])],
     )
-    style.configure("Cyber.Vertical.TScrollbar", background=c["heading_bg"], troughcolor=c["row"])
 
 
 def configure_tree_stripes(tree: ttk.Treeview, *, dark: bool) -> None:
@@ -162,29 +164,55 @@ def configure_listbox(listbox: tk.Listbox, *, dark: bool) -> None:
     )
 
 
+def animate_tab_switch(
+    host: ctk.CTkBaseClass,
+    outgoing: ctk.CTkBaseClass | None,
+    incoming: ctk.CTkBaseClass,
+    *,
+    on_done: Callable[[], None] | None = None,
+    steps: int = _TAB_ANIM_STEPS,
+) -> None:
+    """Slide/fade-style tab transition using place() interpolation."""
+    incoming.lift()
+    incoming.place(relx=0.018, rely=0, relwidth=1, relheight=1)
+    if outgoing is not None:
+        outgoing.lift()
+        outgoing.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+    def ease_out(t: float) -> float:
+        return 1 - (1 - t) ** 3
+
+    def step(index: int = 0) -> None:
+        t = ease_out(index / steps)
+        incoming.place(relx=0.018 * (1 - t), rely=0, relwidth=1, relheight=1)
+        if outgoing is not None:
+            outgoing.place(relx=-0.014 * t, rely=0, relwidth=1, relheight=1)
+        if index >= steps:
+            incoming.place_forget()
+            incoming.pack(fill=tk.BOTH, expand=True)
+            if outgoing is not None:
+                outgoing.place_forget()
+                outgoing.pack_forget()
+            if on_done is not None:
+                on_done()
+            return
+        host.after(_TAB_ANIM_MS, lambda: step(index + 1))
+
+    step()
+
+
 def data_table_shell(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
     return ctk.CTkFrame(
         parent,
         corner_radius=CORNER_RADIUS_SM,
         border_width=1,
-        border_color=_NEON_BORDER,
+        border_color=_BORDER,
         fg_color=_TABLE_SHELL,
     )
 
 
-def nav_label(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
-    return ctk.CTkLabel(
-        parent,
-        text=text.upper(),
-        font=FONT_CAPTION,
-        text_color=_ACCENT,
-        anchor="w",
-    )
-
-
 def nav_divider(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
-    line = ctk.CTkFrame(parent, height=2, fg_color=_NEON_BORDER)
-    return line
+    return ctk.CTkFrame(parent, height=1, fg_color=_BORDER)
 
 
 def nav_button_compact(parent: ctk.CTkBaseClass, *, icon: str, command, **kwargs) -> ctk.CTkButton:
@@ -196,7 +224,7 @@ def nav_button_compact(parent: ctk.CTkBaseClass, *, icon: str, command, **kwargs
         width=width,
         height=height,
         corner_radius=kwargs.pop("corner_radius", CORNER_RADIUS_SM),
-        font=kwargs.pop("font", ("Segoe UI", 16)),
+        font=kwargs.pop("font", ("Segoe UI", 15)),
         fg_color=kwargs.pop("fg_color", _NAV_IDLE_FG),
         text_color=kwargs.pop("text_color", _NAV_IDLE_TEXT),
         hover_color=kwargs.pop("hover_color", _NAV_IDLE_HOVER),
@@ -229,46 +257,17 @@ def bind_tooltip(widget: tk.Misc, text: str) -> None:
         tk.Label(
             tip,
             text=text,
-            bg="#0a1520",
-            fg="#00eaff",
+            bg="#1d1d1f",
+            fg="#f5f5f7",
             font=("Segoe UI", 10),
             padx=8,
             pady=4,
-            relief="solid",
-            borderwidth=1,
-            highlightbackground="#00eaff",
-            highlightthickness=1,
         ).pack()
         state["win"] = tip
 
     widget.bind("<Enter>", show, add="+")
     widget.bind("<Leave>", hide, add="+")
     widget.bind("<ButtonPress>", hide, add="+")
-    widget._tooltip_text = text  # type: ignore[attr-defined]
-
-
-def update_tooltip(widget: tk.Misc, text: str) -> None:
-    widget._tooltip_text = text  # type: ignore[attr-defined]
-    bind_tooltip(widget, text)
-
-
-def nav_button(parent: ctk.CTkBaseClass, *, icon: str, text: str, command, **kwargs) -> ctk.CTkButton:
-    height = kwargs.pop("height", 44)
-    btn = ctk.CTkButton(
-        parent,
-        text=f" {icon}   {text}",
-        anchor=kwargs.pop("anchor", "w"),
-        height=height,
-        corner_radius=kwargs.pop("corner_radius", CORNER_RADIUS_SM),
-        font=kwargs.pop("font", FONT_NAV),
-        fg_color=kwargs.pop("fg_color", _NAV_IDLE_FG),
-        text_color=kwargs.pop("text_color", _NAV_IDLE_TEXT),
-        hover_color=kwargs.pop("hover_color", _NAV_IDLE_HOVER),
-        command=command,
-        **kwargs,
-    )
-    btn._nav_icon = icon  # type: ignore[attr-defined]
-    return btn
 
 
 def set_nav_active(btn: ctk.CTkButton, active: bool) -> None:
@@ -277,8 +276,7 @@ def set_nav_active(btn: ctk.CTkButton, active: bool) -> None:
             fg_color=_NAV_ACTIVE_FG,
             text_color=_NAV_ACTIVE_TEXT,
             hover_color=_NAV_ACTIVE_HOVER,
-            border_width=1,
-            border_color=_NEON_BORDER,
+            border_width=0,
         )
     else:
         btn.configure(
@@ -300,13 +298,12 @@ def card(parent: ctk.CTkBaseClass, *, border: bool = True, fg_color=_SURFACE) ->
         parent,
         corner_radius=CORNER_RADIUS,
         border_width=1 if border else 0,
-        border_color=_NEON_BORDER if border else _SURFACE,
+        border_color=_BORDER if border else _SURFACE,
         fg_color=fg_color,
     )
 
 
 def panel(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
-    """Inner block without heavy outer chrome."""
     return ctk.CTkFrame(parent, corner_radius=CORNER_RADIUS_SM, fg_color=_SURFACE_ALT, border_width=0)
 
 
@@ -316,13 +313,13 @@ def sidebar_panel(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
         width=NAV_WIDTH,
         corner_radius=CORNER_RADIUS,
         border_width=1,
-        border_color=_NEON_BORDER,
+        border_color=_BORDER,
         fg_color=_SIDEBAR,
     )
 
 
 def section_title(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
-    return ctk.CTkLabel(parent, text=text, font=FONT_TITLE, anchor="w", text_color=_ACCENT)
+    return ctk.CTkLabel(parent, text=text, font=FONT_TITLE, anchor="w", text_color=_TEXT)
 
 
 def section_caption(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
@@ -330,7 +327,7 @@ def section_caption(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
 
 
 def page_title(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
-    return ctk.CTkLabel(parent, text=text, font=FONT_TITLE, anchor="w", text_color=_ACCENT)
+    return ctk.CTkLabel(parent, text=text, font=FONT_TITLE, anchor="w", text_color=_TEXT)
 
 
 def page_subtitle(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
@@ -344,8 +341,8 @@ def badge(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
         font=FONT_CAPTION,
         corner_radius=999,
         fg_color=_SURFACE_ALT,
-        text_color=_ACCENT,
-        padx=10,
+        text_color=_MUTED,
+        padx=8,
         pady=2,
     )
 
@@ -355,12 +352,11 @@ def brand_mark(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
         parent,
         width=40,
         height=40,
-        corner_radius=20,
+        corner_radius=10,
         fg_color=_ACCENT,
-        border_width=1,
-        border_color=_ACCENT_GLOW,
+        border_width=0,
     )
-    ctk.CTkLabel(outer, text="▶", font=("Segoe UI", 18), text_color="#001018").place(
+    ctk.CTkLabel(outer, text="▶", font=("Segoe UI", 16), text_color="#ffffff").place(
         relx=0.5, rely=0.5, anchor="center"
     )
     outer.pack_propagate(False)
@@ -368,27 +364,26 @@ def brand_mark(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
 
 
 def primary_button(parent: ctk.CTkBaseClass, **kwargs) -> ctk.CTkButton:
-    height = kwargs.pop("height", 40)
+    height = kwargs.pop("height", 36)
     return ctk.CTkButton(
         parent,
         corner_radius=kwargs.pop("corner_radius", CORNER_RADIUS_SM),
         height=height,
         font=kwargs.pop("font", FONT_BODY),
-        border_width=kwargs.pop("border_width", 1),
-        border_color=kwargs.pop("border_color", _NEON_BORDER),
+        border_width=0,
         **kwargs,
     )
 
 
 def secondary_button(parent: ctk.CTkBaseClass, **kwargs) -> ctk.CTkButton:
-    height = kwargs.pop("height", 38)
+    height = kwargs.pop("height", 34)
     return ctk.CTkButton(
         parent,
         corner_radius=kwargs.pop("corner_radius", CORNER_RADIUS_SM),
         height=height,
         font=kwargs.pop("font", FONT_BODY),
         fg_color=kwargs.pop("fg_color", "transparent"),
-        border_width=kwargs.pop("border_width", 2),
+        border_width=kwargs.pop("border_width", 1),
         text_color=kwargs.pop("text_color", _BTN_OUTLINE_TEXT),
         border_color=kwargs.pop("border_color", _BTN_OUTLINE_BORDER),
         hover_color=kwargs.pop("hover_color", _BTN_OUTLINE_HOVER),

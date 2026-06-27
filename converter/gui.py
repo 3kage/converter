@@ -39,6 +39,7 @@ from .ui_premium import (
     TAB_ICONS,
     TREE_STYLE,
     animate_progress,
+    animate_tab_switch,
     apply_data_widgets_theme,
     bind_tooltip,
     badge,
@@ -95,6 +96,8 @@ class _VideoConverterMixin:
         self._tab_pages: dict[str, ctk.CTkFrame] = {}
         self._nav_buttons: dict[str, ctk.CTkButton] = {}
         self._settings_win: ctk.CTkToplevel | None = None
+        self._tab_animating = False
+        self._pending_tab_key: str | None = None
         self._help_menu: tk.Menu | None = None
         self._menu: tk.Menu | None = None
 
@@ -246,18 +249,55 @@ class _VideoConverterMixin:
             self._comparison_label.pack_forget()
 
     def _on_tab_selected(self, key: str) -> None:
-        self._show_tab(key)
+        self._show_tab(key, animate=True)
 
-    def _show_tab(self, key: str) -> None:
-        self._current_tab_key = key
-        for tab_key, page in self._tab_pages.items():
-            if tab_key == key:
-                page.pack(fill=tk.BOTH, expand=True)
-            else:
-                page.pack_forget()
+    def _show_tab(self, key: str, *, animate: bool = True) -> None:
+        if self._tab_animating:
+            self._pending_tab_key = key
+            for tab_key, btn in self._nav_buttons.items():
+                set_nav_active(btn, tab_key == key)
+            if hasattr(self, "_page_title"):
+                self._page_title.configure(text=self._t(key))
+            if hasattr(self, "_page_subtitle"):
+                self._page_subtitle.configure(text=f"· {self._t(f'{key}_desc')}")
+            return
+
+        if key == self._current_tab_key:
+            return
+        old_key = self._current_tab_key
+        outgoing = self._tab_pages[old_key]
+        incoming = self._tab_pages[key]
+
         for tab_key, btn in self._nav_buttons.items():
             set_nav_active(btn, tab_key == key)
         self._update_page_header()
+        self._current_tab_key = key
+
+        if not animate:
+            for tab_key, page in self._tab_pages.items():
+                if tab_key == key:
+                    page.place_forget()
+                    page.pack(fill=tk.BOTH, expand=True)
+                else:
+                    page.place_forget()
+                    page.pack_forget()
+            return
+
+        for tab_key, page in self._tab_pages.items():
+            if tab_key not in (old_key, key):
+                page.place_forget()
+                page.pack_forget()
+
+        self._tab_animating = True
+
+        def _finish_transition() -> None:
+            self._tab_animating = False
+            pending = self._pending_tab_key
+            self._pending_tab_key = None
+            if pending:
+                self._show_tab(pending, animate=True)
+
+        animate_tab_switch(self._tab_stack, outgoing, incoming, on_done=_finish_transition)
 
     def _open_settings_dialog(self) -> None:
         if self._settings_win is not None and self._settings_win.winfo_exists():
@@ -437,7 +477,7 @@ class _VideoConverterMixin:
         self._build_batch_tab()
         self._build_watch_tab()
         self._build_history_tab()
-        self._show_tab(self._current_tab_key)
+        self._show_tab(self._current_tab_key, animate=False)
 
         dock = card(self)
         dock.pack(fill=tk.X, padx=PAD, pady=(0, PAD_SM))

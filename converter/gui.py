@@ -32,6 +32,7 @@ from .ui_premium import (
     FONT_BODY,
     FONT_MONO,
     FONT_SMALL,
+    NAV_WIDTH,
     PAD,
     PAD_LG,
     PAD_SM,
@@ -39,6 +40,7 @@ from .ui_premium import (
     TREE_STYLE,
     animate_progress,
     apply_data_widgets_theme,
+    bind_tooltip,
     badge,
     brand_mark,
     card,
@@ -46,8 +48,8 @@ from .ui_premium import (
     configure_tree_stripes,
     data_table_shell,
     init_premium_theme,
-    nav_button,
-    nav_label,
+    nav_button_compact,
+    nav_divider,
     nav_text,
     page_subtitle,
     page_title,
@@ -90,7 +92,7 @@ class _VideoConverterMixin:
         self._current_tab_key = self._tab_keys[0]
         self._tab_pages: dict[str, ctk.CTkFrame] = {}
         self._nav_buttons: dict[str, ctk.CTkButton] = {}
-        self._nav_sections: list[tuple[ctk.CTkLabel, str]] = []
+        self._settings_win: ctk.CTkToplevel | None = None
         self._help_menu: tk.Menu | None = None
         self._menu: tk.Menu | None = None
 
@@ -206,9 +208,10 @@ class _VideoConverterMixin:
         for widget, key, kind in self._i18n_widgets:
             self._apply_i18n_widget(widget, key, kind)
         for key, btn in self._nav_buttons.items():
-            btn.configure(text=nav_text(TAB_ICONS[key], self._t(key)))
-        for label, key in self._nav_sections:
-            label.configure(text=self._t(key).upper())
+            btn.configure(text=TAB_ICONS[key])
+            bind_tooltip(btn, self._t(key))
+        if hasattr(self, "_settings_nav_btn"):
+            bind_tooltip(self._settings_nav_btn, self._t("settings"))
         self._update_page_header()
         self._history_tree.heading("time", text=self._t("history_col_time"))
         self._history_tree.heading("input", text=self._t("history_col_in"))
@@ -241,6 +244,95 @@ class _VideoConverterMixin:
             set_nav_active(btn, tab_key == key)
         self._update_page_header()
 
+    def _open_settings_dialog(self) -> None:
+        if self._settings_win is not None and self._settings_win.winfo_exists():
+            self._settings_win.focus()
+            return
+        win = ctk.CTkToplevel(self)
+        win.title(self._t("settings"))
+        win.geometry("400x440")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        self._settings_win = win
+        body = card(win)
+        body.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=PAD)
+        self._build_settings_body(body)
+        win.protocol("WM_DELETE_WINDOW", self._close_settings_dialog)
+
+    def _close_settings_dialog(self) -> None:
+        if self._settings_win is not None:
+            try:
+                self._settings_win.grab_release()
+            except tk.TclError:
+                pass
+            self._settings_win.destroy()
+        self._settings_win = None
+        self._dark_theme_cb = None
+
+    def _build_settings_body(self, parent: ctk.CTkFrame) -> None:
+        self._add_i18n(section_title(parent, self._t("settings")), "settings").pack(
+            anchor="w", padx=PAD, pady=(PAD_SM, PAD)
+        )
+        self._add_i18n(
+            ctk.CTkCheckBox(
+                parent,
+                text="",
+                variable=self._follow_system_theme,
+                command=self._on_system_theme_toggle,
+                font=FONT_BODY,
+            ),
+            "system_theme",
+        ).pack(anchor="w", padx=PAD, pady=4)
+        self._dark_theme_cb = self._add_i18n(
+            ctk.CTkCheckBox(
+                parent,
+                text="",
+                variable=self._dark,
+                command=self._on_dark_toggle,
+                font=FONT_BODY,
+            ),
+            "dark_theme",
+        )
+        self._dark_theme_cb.pack(anchor="w", padx=PAD, pady=4)
+        self._update_dark_checkbox_state()
+        lang_row = ctk.CTkFrame(parent, fg_color="transparent")
+        lang_row.pack(fill=tk.X, padx=PAD, pady=(PAD_SM, 4))
+        self._add_i18n(ctk.CTkLabel(lang_row, text="", font=FONT_BODY), "language").pack(side=tk.LEFT)
+        ctk.CTkComboBox(
+            lang_row,
+            values=["uk", "en"],
+            variable=self._lang,
+            width=80,
+            state="readonly",
+            font=FONT_BODY,
+            command=lambda _v: self._change_language(),
+        ).pack(side=tk.RIGHT)
+        self._add_i18n(
+            ctk.CTkCheckBox(
+                parent,
+                text="",
+                variable=self._check_updates_on_startup,
+                command=self._save_settings,
+                font=FONT_BODY,
+            ),
+            "update_on_startup",
+        ).pack(anchor="w", padx=PAD, pady=4)
+        self._add_i18n(
+            ctk.CTkCheckBox(
+                parent,
+                text="",
+                variable=self._notify_on_complete,
+                command=self._save_settings,
+                font=FONT_BODY,
+            ),
+            "notify_on_complete",
+        ).pack(anchor="w", padx=PAD, pady=4)
+        self._add_i18n(
+            primary_button(parent, text="", command=self._save_custom_preset),
+            "save_preset",
+        ).pack(fill=tk.X, padx=PAD, pady=(PAD, PAD_SM))
+
     def _build_ui(self) -> None:
         self._build_menu()
 
@@ -265,90 +357,33 @@ class _VideoConverterMixin:
         sidebar.pack(side=tk.LEFT, fill=tk.BOTH, padx=(0, PAD_SM))
         sidebar.pack_propagate(False)
 
-        sidebar_scroll = ctk.CTkScrollableFrame(sidebar, fg_color="transparent")
-        sidebar_scroll.pack(fill=tk.BOTH, expand=True, padx=PAD_SM, pady=PAD_SM)
+        sidebar_scroll = ctk.CTkScrollableFrame(sidebar, fg_color="transparent", width=NAV_WIDTH - 8)
+        sidebar_scroll.pack(fill=tk.BOTH, expand=True, padx=4, pady=PAD_SM)
 
-        nav_groups: list[tuple[str, list[str]]] = [
-            ("nav_workflow", ["tab_convert", "tab_audio", "tab_trim", "tab_advanced"]),
-            ("nav_automation", ["tab_batch", "tab_watch", "tab_history"]),
+        nav_groups: list[list[str]] = [
+            ["tab_convert", "tab_audio", "tab_trim", "tab_advanced"],
+            ["tab_batch", "tab_watch", "tab_history"],
         ]
-        for section_key, keys in nav_groups:
-            sec = nav_label(sidebar_scroll, self._t(section_key))
-            sec.pack(anchor="w", padx=PAD_SM, pady=(PAD, PAD_SM))
-            self._nav_sections.append((sec, section_key))
+        for group_index, keys in enumerate(nav_groups):
+            if group_index > 0:
+                nav_divider(sidebar_scroll).pack(fill=tk.X, padx=10, pady=(PAD_SM, PAD_SM))
+            group = ctk.CTkFrame(sidebar_scroll, fg_color="transparent")
+            group.pack(fill=tk.X)
             for key in keys:
-                btn = nav_button(
-                    sidebar_scroll,
+                btn = nav_button_compact(
+                    group,
                     icon=TAB_ICONS[key],
-                    text=self._t(key),
                     command=lambda k=key: self._on_tab_selected(k),
                 )
-                btn.pack(fill=tk.X, padx=PAD_SM, pady=2)
+                btn.pack(pady=2)
+                bind_tooltip(btn, self._t(key))
                 self._nav_buttons[key] = btn
 
-        settings_card = card(sidebar_scroll, fg_color="transparent", border=False)
-        settings_card.pack(fill=tk.X, padx=PAD_SM, pady=(PAD_LG, PAD_SM))
-        self._add_i18n(section_title(settings_card, self._t("settings")), "settings").pack(
-            anchor="w", padx=PAD_SM, pady=(PAD_SM, 4)
-        )
-        self._add_i18n(
-            ctk.CTkCheckBox(
-                settings_card,
-                text="",
-                variable=self._follow_system_theme,
-                command=self._on_system_theme_toggle,
-                font=FONT_SMALL,
-            ),
-            "system_theme",
-        ).pack(anchor="w", padx=PAD_SM, pady=2)
-        self._dark_theme_cb = self._add_i18n(
-            ctk.CTkCheckBox(
-                settings_card,
-                text="",
-                variable=self._dark,
-                command=self._on_dark_toggle,
-                font=FONT_SMALL,
-            ),
-            "dark_theme",
-        )
-        self._dark_theme_cb.pack(anchor="w", padx=PAD_SM, pady=2)
-        lang_row = ctk.CTkFrame(settings_card, fg_color="transparent")
-        lang_row.pack(fill=tk.X, padx=PAD_SM, pady=(PAD_SM, 2))
-        self._add_i18n(ctk.CTkLabel(lang_row, text="", font=FONT_SMALL), "language").pack(side=tk.LEFT)
-        ctk.CTkComboBox(
-            lang_row,
-            values=["uk", "en"],
-            variable=self._lang,
-            width=72,
-            height=28,
-            state="readonly",
-            font=FONT_SMALL,
-            command=lambda _v: self._change_language(),
-        ).pack(side=tk.RIGHT)
-        self._add_i18n(
-            ctk.CTkCheckBox(
-                settings_card,
-                text="",
-                variable=self._check_updates_on_startup,
-                command=self._save_settings,
-                font=FONT_SMALL,
-            ),
-            "update_on_startup",
-        ).pack(anchor="w", padx=PAD_SM, pady=2)
-        self._add_i18n(
-            ctk.CTkCheckBox(
-                settings_card,
-                text="",
-                variable=self._notify_on_complete,
-                command=self._save_settings,
-                font=FONT_SMALL,
-            ),
-            "notify_on_complete",
-        ).pack(anchor="w", padx=PAD_SM, pady=2)
-        self._add_i18n(
-            secondary_button(settings_card, text="", command=self._save_custom_preset),
-            "save_preset",
-        ).pack(fill=tk.X, padx=PAD_SM, pady=(PAD_SM, PAD_SM))
+        nav_divider(sidebar_scroll).pack(fill=tk.X, padx=10, pady=(PAD, PAD_SM))
+        settings_btn = nav_button_compact(sidebar_scroll, icon="⚙", command=self._open_settings_dialog)
+        settings_btn.pack(pady=2)
+        bind_tooltip(settings_btn, self._t("settings"))
+        self._settings_nav_btn = settings_btn
 
         content = ctk.CTkFrame(main, fg_color="transparent")
         content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

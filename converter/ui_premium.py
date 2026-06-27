@@ -25,7 +25,8 @@ CORNER_RADIUS_LG = 20
 PAD = 14
 PAD_SM = 8
 PAD_LG = 18
-NAV_WIDTH = 220
+NAV_WIDTH = 68
+NAV_BTN = 44
 
 FONT_BODY = ("Segoe UI", 13)
 FONT_SMALL = ("Segoe UI", 11)
@@ -181,6 +182,74 @@ def nav_label(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
     )
 
 
+def nav_divider(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
+    line = ctk.CTkFrame(parent, height=2, fg_color=_NEON_BORDER)
+    return line
+
+
+def nav_button_compact(parent: ctk.CTkBaseClass, *, icon: str, command, **kwargs) -> ctk.CTkButton:
+    btn = ctk.CTkButton(
+        parent,
+        text=icon,
+        width=NAV_BTN,
+        height=NAV_BTN,
+        corner_radius=CORNER_RADIUS_SM,
+        font=("Segoe UI", 16),
+        fg_color=_NAV_IDLE_FG,
+        text_color=_NAV_IDLE_TEXT,
+        hover_color=_NAV_IDLE_HOVER,
+        command=command,
+        **kwargs,
+    )
+    btn._nav_icon = icon  # type: ignore[attr-defined]
+    btn._nav_compact = True  # type: ignore[attr-defined]
+    return btn
+
+
+def bind_tooltip(widget: tk.Misc, text: str) -> None:
+    state: dict[str, tk.Toplevel | None] = {"win": None}
+
+    def hide(_event=None) -> None:
+        if state["win"] is not None:
+            state["win"].destroy()
+            state["win"] = None
+
+    def show(_event=None) -> None:
+        hide()
+        if not text:
+            return
+        tip = tk.Toplevel(widget)
+        tip.wm_overrideredirect(True)
+        tip.attributes("-topmost", True)
+        x = widget.winfo_rootx() + widget.winfo_width() + 8
+        y = widget.winfo_rooty() + 4
+        tip.wm_geometry(f"+{x}+{y}")
+        tk.Label(
+            tip,
+            text=text,
+            bg="#0a1520",
+            fg="#00eaff",
+            font=("Segoe UI", 10),
+            padx=8,
+            pady=4,
+            relief="solid",
+            borderwidth=1,
+            highlightbackground="#00eaff",
+            highlightthickness=1,
+        ).pack()
+        state["win"] = tip
+
+    widget.bind("<Enter>", show, add="+")
+    widget.bind("<Leave>", hide, add="+")
+    widget.bind("<ButtonPress>", hide, add="+")
+    widget._tooltip_text = text  # type: ignore[attr-defined]
+
+
+def update_tooltip(widget: tk.Misc, text: str) -> None:
+    widget._tooltip_text = text  # type: ignore[attr-defined]
+    bind_tooltip(widget, text)
+
+
 def nav_button(parent: ctk.CTkBaseClass, *, icon: str, text: str, command, **kwargs) -> ctk.CTkButton:
     btn = ctk.CTkButton(
         parent,
@@ -215,10 +284,12 @@ def set_nav_active(btn: ctk.CTkButton, active: bool) -> None:
             hover_color=_NAV_IDLE_HOVER,
             border_width=0,
         )
+    if getattr(btn, "_nav_compact", False):
+        btn.configure(width=NAV_BTN, height=NAV_BTN)
 
 
 def nav_text(icon: str, label: str) -> str:
-    return f" {icon}   {label}"
+    return icon
 
 
 def card(parent: ctk.CTkBaseClass, *, border: bool = True, fg_color=_SURFACE) -> ctk.CTkFrame:

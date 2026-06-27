@@ -28,6 +28,12 @@ FONT_TITLE = ("Segoe UI", 15, "bold")
 FONT_HERO = ("Segoe UI", 18, "bold")
 FONT_MONO = ("Consolas", 11)
 
+# (light, dark) — CTkButton theme uses white text for filled buttons; outlined buttons need explicit contrast.
+_BTN_OUTLINE_TEXT = ("#1e3a8a", "#e8eaf0")
+_BTN_OUTLINE_BORDER = ("#4f7cff", "#6b9aff")
+_BTN_OUTLINE_HOVER = ("#dbeafe", "#2a2a3d")
+_BTN_OUTLINE_TEXT_DISABLED = ("#94a3b8", "#6b7280")
+
 
 def init_premium_theme(*, follow_system: bool, dark_manual: bool) -> None:
     if THEME_JSON.is_file():
@@ -68,6 +74,10 @@ def secondary_button(parent: ctk.CTkBaseClass, **kwargs) -> ctk.CTkButton:
         font=FONT_BODY,
         fg_color="transparent",
         border_width=2,
+        text_color=_BTN_OUTLINE_TEXT,
+        border_color=_BTN_OUTLINE_BORDER,
+        hover_color=_BTN_OUTLINE_HOVER,
+        text_color_disabled=_BTN_OUTLINE_TEXT_DISABLED,
         **kwargs,
     )
 

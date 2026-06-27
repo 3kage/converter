@@ -444,7 +444,7 @@ class _VideoConverterMixin:
         self._build_batch_tab()
         self._build_watch_tab()
         self._build_history_tab()
-        self._show_tab(self._current_tab_key, animate=False)
+        self._show_tab(self._current_tab_key)
 
         dock = card(self)
         dock.pack(fill=tk.X, padx=PAD, pady=(0, PAD_SM))

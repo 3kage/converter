@@ -1,13 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 # macOS build spec (creates VideoConverter.app)
+from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
+
+ctk_datas = collect_data_files("customtkinter")
+theme_datas = [("converter/assets/premium-theme.json", "converter/assets")]
 
 a = Analysis(
     ['video_converter_gui.py'],
     pathex=['.'],
     binaries=[],
-    datas=[],
+    datas=ctk_datas + theme_datas,
     hiddenimports=[
         'converter',
         'converter.cli',
@@ -33,6 +37,8 @@ a = Analysis(
         'converter.watch_folder',
         'converter.background',
         'converter.system_theme',
+        'converter.ui_premium',
+        'customtkinter',
         'tkinterdnd2',
     ],
     hookspath=[],

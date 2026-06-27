@@ -1,8 +1,5 @@
-# Build tools (local or GitHub Actions):
-#   Windows: powershell -ExecutionPolicy Bypass -File build.ps1
-#   macOS:   chmod +x build.sh && ./build.sh
-#   CI:      push to GitHub -> Actions builds .app and .exe automatically
-
+# GUI dependencies (pip install -e . && pip install customtkinter tkinterdnd2 windnd)
+customtkinter>=5.2.0
 pyinstaller>=6.0
 windnd>=1.0.7; sys_platform == "win32"
 tkinterdnd2>=0.4.2

@@ -4,10 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video-converter"
-version = "2.3.4"
+version = "2.4.0"
 description = "Аналіз та конвертація відеофайлів через FFmpeg"
 readme = "requirements.txt"
 requires-python = ">=3.10"
+
+[project.optional-dependencies]
+gui = [
+    "customtkinter>=5.2.0",
+    "tkinterdnd2>=0.4.2",
+    "windnd>=1.0.7; sys_platform == 'win32'",
+]
 
 [project.scripts]
 video-converter = "converter.cli:main"
@@ -16,3 +23,6 @@ video-converter-gui = "converter.gui:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["converter*"]
+
+[tool.setuptools.package-data]
+converter = ["assets/*.json"]

@@ -6,6 +6,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+import customtkinter as ctk
+
 from . import __version__
 from .background import spawn_background_batch
 from .batch import build_batch_items, pause_batch, resume_batch, run_batch
@@ -26,6 +28,19 @@ from .probe import analyze_file, render_media_info
 from .streams import list_selectable_streams
 from .system_theme import is_dark_mode
 from .watch_folder import FolderWatcher
+from .ui_premium import (
+    FONT_BODY,
+    FONT_MONO,
+    PAD,
+    PAD_SM,
+    animate_progress,
+    card,
+    init_premium_theme,
+    primary_button,
+    secondary_button,
+    section_title,
+    sync_appearance,
+)
 from .updater import (
     can_auto_update,
     check_for_updates,
@@ -33,36 +48,37 @@ from .updater import (
     open_latest_release_download,
 )
 
-try:
-    from tkinterdnd2 import TkinterDnD
-
-    _AppBase = TkinterDnD.Tk
-except ImportError:
-    _AppBase = tk.Tk
-
 VIDEO_EXTS = {".mov", ".mp4", ".mkv", ".avi", ".webm", ".wmv", ".flv", ".m4v", ".mpeg", ".mpg", ".ts", ".ogv"}
 
 
-class VideoConverterApp(_AppBase):
-    def __init__(self) -> None:
-        super().__init__()
+class _VideoConverterMixin:
+    def _init_app(self) -> None:
         settings = load_settings()
         self.i18n = I18n(settings.lang)
+        init_premium_theme(follow_system=settings.follow_system_theme, dark_manual=settings.dark)
         self.title(f"{self.i18n.t('app_title')} v{__version__}")
-        self.geometry("980x860")
-        self.minsize(700, 480)
+        self.geometry("1000x880")
+        self.minsize(720, 520)
 
         self._i18n_widgets: list[tuple[object, str, str]] = []
-        self._notebook_tabs: list[tuple[ttk.Frame, str]] = []
-        self._scroll_canvases: list[tk.Canvas] = []
-        self._scroll_bindings: list[tuple[ttk.Frame, object]] = []
+        self._tab_keys = [
+            "tab_convert",
+            "tab_audio",
+            "tab_trim",
+            "tab_advanced",
+            "tab_batch",
+            "tab_watch",
+            "tab_history",
+        ]
+        self._current_tab_key = self._tab_keys[0]
+        self._tab_pages: dict[str, ctk.CTkFrame] = {}
         self._help_menu: tk.Menu | None = None
         self._menu: tk.Menu | None = None
 
         self._follow_system_theme = tk.BooleanVar(value=settings.follow_system_theme)
         self._dark = tk.BooleanVar(value=settings.dark)
         self._applied_dark: bool | None = None
-        self._dark_theme_cb: ttk.Checkbutton | None = None
+        self._dark_theme_cb: ctk.CTkCheckBox | None = None
         self._lang = tk.StringVar(value=settings.lang)
         self._input_path = tk.StringVar()
         self._output_path = tk.StringVar()
@@ -126,7 +142,7 @@ class VideoConverterApp(_AppBase):
         self._cancel_requested = False
         self._worker: threading.Thread | None = None
         self._progress_start = 0.0
-        self._preview_image: tk.PhotoImage | None = None
+        self._preview_image: ctk.CTkImage | None = None
         self._preview_playing = False
         self._preview_after_id: str | None = None
         self._media_duration: float | None = None
@@ -170,8 +186,9 @@ class VideoConverterApp(_AppBase):
     def _refresh_i18n(self) -> None:
         for widget, key, kind in self._i18n_widgets:
             self._apply_i18n_widget(widget, key, kind)
-        for i, (frame, key) in enumerate(self._notebook_tabs):
-            self._notebook.tab(i, text=self._t(key))
+        if hasattr(self, "_tab_seg"):
+            self._tab_seg.configure(values=[self._t(k) for k in self._tab_keys])
+            self._tab_seg.set(self._t(self._current_tab_key))
         self._history_tree.heading("time", text=self._t("history_col_time"))
         self._history_tree.heading("input", text=self._t("history_col_in"))
         self._history_tree.heading("output", text=self._t("history_col_out"))
@@ -183,65 +200,100 @@ class VideoConverterApp(_AppBase):
         if self._menu is not None:
             self._menu.entryconfigure(0, label=self._t("help"))
 
+    def _on_tab_selected(self, value: str) -> None:
+        for key in self._tab_keys:
+            if self._t(key) == value:
+                self._show_tab(key)
+                return
+
+    def _show_tab(self, key: str) -> None:
+        self._current_tab_key = key
+        for tab_key, page in self._tab_pages.items():
+            if tab_key == key:
+                page.pack(fill=tk.BOTH, expand=True)
+            else:
+                page.pack_forget()
+
     def _build_ui(self) -> None:
         self._build_menu()
-        pad = {"padx": 10, "pady": 4}
-        top = ttk.Frame(self)
-        top.pack(fill=tk.X, **pad)
+        top = ctk.CTkFrame(self, fg_color="transparent")
+        top.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
         self._add_i18n(
-            ttk.Checkbutton(top, text="", variable=self._follow_system_theme, command=self._on_system_theme_toggle),
+            ctk.CTkCheckBox(
+                top,
+                text="",
+                variable=self._follow_system_theme,
+                command=self._on_system_theme_toggle,
+                font=FONT_BODY,
+            ),
             "system_theme",
         ).pack(side=tk.LEFT)
         self._dark_theme_cb = self._add_i18n(
-            ttk.Checkbutton(top, text="", variable=self._dark, command=self._on_dark_toggle),
+            ctk.CTkCheckBox(top, text="", variable=self._dark, command=self._on_dark_toggle, font=FONT_BODY),
             "dark_theme",
         )
-        self._dark_theme_cb.pack(side=tk.LEFT, padx=(8, 0))
-        self._add_i18n(ttk.Label(top, text=""), "language").pack(side=tk.LEFT, padx=(16, 4))
-        lang_cb = ttk.Combobox(top, textvariable=self._lang, values=["uk", "en"], width=5, state="readonly")
-        lang_cb.pack(side=tk.LEFT)
-        lang_cb.bind("<<ComboboxSelected>>", lambda _e: self._change_language())
+        self._dark_theme_cb.pack(side=tk.LEFT, padx=(PAD_SM, 0))
+        self._add_i18n(ctk.CTkLabel(top, text="", font=FONT_BODY), "language").pack(side=tk.LEFT, padx=(PAD, 4))
+        ctk.CTkComboBox(
+            top,
+            values=["uk", "en"],
+            variable=self._lang,
+            width=70,
+            state="readonly",
+            font=FONT_BODY,
+            command=lambda _v: self._change_language(),
+        ).pack(side=tk.LEFT)
         self._add_i18n(
-            ttk.Checkbutton(top, text="", variable=self._check_updates_on_startup, command=self._save_settings),
+            ctk.CTkCheckBox(
+                top,
+                text="",
+                variable=self._check_updates_on_startup,
+                command=self._save_settings,
+                font=FONT_BODY,
+            ),
             "update_on_startup",
-        ).pack(side=tk.LEFT, padx=(16, 0))
+        ).pack(side=tk.LEFT, padx=(PAD, 0))
         self._add_i18n(
-            ttk.Checkbutton(top, text="", variable=self._notify_on_complete, command=self._save_settings),
+            ctk.CTkCheckBox(
+                top,
+                text="",
+                variable=self._notify_on_complete,
+                command=self._save_settings,
+                font=FONT_BODY,
+            ),
             "notify_on_complete",
-        ).pack(side=tk.LEFT, padx=(8, 0))
+        ).pack(side=tk.LEFT, padx=(PAD_SM, 0))
         self._add_i18n(
-            ttk.Button(top, text="", command=self._save_custom_preset),
+            secondary_button(top, text="", command=self._save_custom_preset),
             "save_preset",
         ).pack(side=tk.RIGHT)
 
-        self._notebook = ttk.Notebook(self)
-        self._notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
-        self._tab_convert = ttk.Frame(self._notebook)
-        self._tab_audio = ttk.Frame(self._notebook)
-        self._tab_trim = ttk.Frame(self._notebook)
-        self._tab_advanced = ttk.Frame(self._notebook)
-        self._tab_batch = ttk.Frame(self._notebook)
-        self._tab_watch = ttk.Frame(self._notebook)
-        self._tab_history = ttk.Frame(self._notebook)
-        for tab, name in [
-            (self._tab_convert, "tab_convert"),
-            (self._tab_audio, "tab_audio"),
-            (self._tab_trim, "tab_trim"),
-            (self._tab_advanced, "tab_advanced"),
-            (self._tab_batch, "tab_batch"),
-            (self._tab_watch, "tab_watch"),
-            (self._tab_history, "tab_history"),
-        ]:
-            self._notebook.add(tab, text=self._t(name))
-            self._notebook_tabs.append((tab, name))
+        self._tab_seg = ctk.CTkSegmentedButton(
+            self,
+            values=[self._t(k) for k in self._tab_keys],
+            command=self._on_tab_selected,
+            font=FONT_BODY,
+        )
+        self._tab_seg.pack(fill=tk.X, padx=PAD, pady=(0, PAD_SM))
+        self._tab_seg.set(self._t(self._current_tab_key))
 
-        self._tab_convert_body = self._make_scrollable(self._tab_convert)
-        self._tab_audio_body = self._make_scrollable(self._tab_audio)
-        self._tab_trim_body = self._make_scrollable(self._tab_trim)
-        self._tab_advanced_body = self._make_scrollable(self._tab_advanced)
-        self._tab_batch_body = self._make_scrollable(self._tab_batch)
-        self._tab_watch_body = self._make_scrollable(self._tab_watch)
-        self._tab_history_body = self._make_scrollable(self._tab_history)
+        self._tab_stack = ctk.CTkFrame(self, fg_color="transparent")
+        self._tab_stack.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=PAD_SM)
+        tab_attr = {
+            "tab_convert": "_tab_convert_body",
+            "tab_audio": "_tab_audio_body",
+            "tab_trim": "_tab_trim_body",
+            "tab_advanced": "_tab_advanced_body",
+            "tab_batch": "_tab_batch_body",
+            "tab_watch": "_tab_watch_body",
+            "tab_history": "_tab_history_body",
+        }
+        for key in self._tab_keys:
+            page = ctk.CTkFrame(self._tab_stack, fg_color="transparent")
+            body = ctk.CTkScrollableFrame(page, fg_color="transparent")
+            body.pack(fill=tk.BOTH, expand=True)
+            self._tab_pages[key] = page
+            setattr(self, tab_attr[key], body)
 
         self._build_convert_tab()
         self._build_audio_tab()
@@ -250,38 +302,49 @@ class VideoConverterApp(_AppBase):
         self._build_batch_tab()
         self._build_watch_tab()
         self._build_history_tab()
-        self._bind_scroll_wheel_targets()
+        self._show_tab(self._current_tab_key)
 
-        bottom = ttk.Frame(self)
-        bottom.pack(fill=tk.X, padx=10, pady=4)
-        self._progress = ttk.Progressbar(bottom, mode="determinate", maximum=100)
+        bottom = ctk.CTkFrame(self, fg_color="transparent")
+        bottom.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._progress = ctk.CTkProgressBar(bottom)
         self._progress.pack(fill=tk.X)
-        ttk.Label(bottom, textvariable=self._status).pack(anchor=tk.W, pady=(4, 0))
-        self._cmd_label = ttk.Label(bottom, textvariable=self._cmd_text, wraplength=940, font=("Consolas", 9))
-        self._cmd_label.pack(anchor=tk.W)
-        self._cmp_label = ttk.Label(bottom, textvariable=self._comparison, wraplength=940)
-        self._cmp_label.pack(anchor=tk.W)
-
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=10, pady=(0, 10))
-        self._convert_btn = self._add_i18n(
-            ttk.Button(btns, text="", command=self._start_convert),
-            "convert",
+        self._progress.set(0)
+        ctk.CTkLabel(bottom, textvariable=self._status, font=FONT_BODY, anchor="w").pack(
+            fill=tk.X, pady=(PAD_SM, 0)
         )
+        self._cmd_label = ctk.CTkLabel(
+            bottom,
+            textvariable=self._cmd_text,
+            font=FONT_MONO,
+            anchor="w",
+            wraplength=960,
+            justify="left",
+        )
+        self._cmd_label.pack(fill=tk.X)
+        ctk.CTkLabel(
+            bottom,
+            textvariable=self._comparison,
+            font=FONT_BODY,
+            anchor="w",
+            wraplength=960,
+            justify="left",
+        ).pack(fill=tk.X)
+
+        btns = ctk.CTkFrame(self, fg_color="transparent")
+        btns.pack(fill=tk.X, padx=PAD, pady=(0, PAD))
+        self._convert_btn = self._add_i18n(primary_button(btns, text="", command=self._start_convert), "convert")
         self._convert_btn.pack(side=tk.LEFT)
-        self._add_i18n(
-            ttk.Button(btns, text="", command=self._dry_run),
-            "dry_run",
-        ).pack(side=tk.LEFT, padx=(8, 0))
+        self._add_i18n(secondary_button(btns, text="", command=self._dry_run), "dry_run").pack(
+            side=tk.LEFT, padx=(PAD_SM, 0)
+        )
         self._cancel_btn = self._add_i18n(
-            ttk.Button(btns, text="", command=self._cancel_convert, state=tk.DISABLED),
+            secondary_button(btns, text="", command=self._cancel_convert, state="disabled"),
             "cancel",
         )
-        self._cancel_btn.pack(side=tk.LEFT, padx=(8, 0))
-        self._add_i18n(
-            ttk.Button(btns, text="", command=self._open_output_folder),
-            "open_folder",
-        ).pack(side=tk.RIGHT)
+        self._cancel_btn.pack(side=tk.LEFT, padx=(PAD_SM, 0))
+        self._add_i18n(secondary_button(btns, text="", command=self._open_output_folder), "open_folder").pack(
+            side=tk.RIGHT
+        )
 
     def _build_menu(self) -> None:
         menu = tk.Menu(self)
@@ -294,426 +357,435 @@ class VideoConverterApp(_AppBase):
         menu.add_cascade(label=self._t("help"), menu=self._help_menu)
         self.config(menu=menu)
 
-    def _make_scrollable(self, parent: ttk.Frame) -> ttk.Frame:
-        parent.rowconfigure(0, weight=1)
-        parent.columnconfigure(0, weight=1)
-        canvas = tk.Canvas(parent, highlightthickness=0, borderwidth=0)
-        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
-        canvas.grid(row=0, column=0, sticky="nsew")
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        content = ttk.Frame(canvas)
-        window_id = canvas.create_window((0, 0), window=content, anchor="nw")
-
-        def _sync_scroll_region(_event: tk.Event | None = None) -> None:
-            canvas.configure(scrollregion=canvas.bbox("all"))
-
-        def _sync_width(event: tk.Event) -> None:
-            canvas.itemconfigure(window_id, width=event.width)
-
-        def _scroll(event: tk.Event) -> None:
-            if event.delta:
-                canvas.yview_scroll(int(-event.delta / 120), "units")
-            elif event.num == 4:
-                canvas.yview_scroll(-1, "units")
-            elif event.num == 5:
-                canvas.yview_scroll(1, "units")
-
-        content.bind("<Configure>", _sync_scroll_region)
-        canvas.bind("<Configure>", _sync_width)
-        for widget in (canvas, content):
-            widget.bind("<MouseWheel>", _scroll)
-            widget.bind("<Button-4>", _scroll)
-            widget.bind("<Button-5>", _scroll)
-
-        self._scroll_canvases.append(canvas)
-        self._scroll_bindings.append((content, _scroll))
-        return content
-
-    def _bind_scroll_wheel_targets(self) -> None:
-        def bind_recursive(widget: tk.Misc, handler: object) -> None:
-            widget.bind("<MouseWheel>", handler, add="+")
-            widget.bind("<Button-4>", handler, add="+")
-            widget.bind("<Button-5>", handler, add="+")
-            for child in widget.winfo_children():
-                bind_recursive(child, handler)
-
-        for content, handler in self._scroll_bindings:
-            bind_recursive(content, handler)
-
     def _build_convert_tab(self) -> None:
         p = self._tab_convert_body
-        inp = ttk.LabelFrame(p, text=self._t("input_file"))
-        inp.pack(fill=tk.X, padx=8, pady=6)
-        self._add_i18n(inp, "input_file", "label")
-        row = ttk.Frame(inp)
-        row.pack(fill=tk.X, padx=8, pady=6)
-        ttk.Entry(row, textvariable=self._input_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-        self._add_i18n(ttk.Button(row, text="", command=self._browse_input), "browse").pack(side=tk.LEFT)
-        self._add_i18n(ttk.Button(row, text="", command=self._analyze), "analyze").pack(side=tk.LEFT, padx=(8, 0))
-        drop_lbl = ttk.Label(inp, text=self._t("drop_hint"), foreground="gray")
-        drop_lbl.pack(anchor=tk.W, padx=8, pady=(0, 6))
+        inp = card(p)
+        inp.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(section_title(inp, self._t("input_file")), "input_file").pack(
+            anchor="w", padx=PAD, pady=(PAD_SM, 4)
+        )
+        row = ctk.CTkFrame(inp, fg_color="transparent")
+        row.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        ctk.CTkEntry(row, textvariable=self._input_path, font=FONT_BODY).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, PAD_SM)
+        )
+        self._add_i18n(secondary_button(row, text="", command=self._browse_input), "browse").pack(side=tk.LEFT)
+        self._add_i18n(secondary_button(row, text="", command=self._analyze), "analyze").pack(
+            side=tk.LEFT, padx=(PAD_SM, 0)
+        )
+        drop_lbl = ctk.CTkLabel(inp, text=self._t("drop_hint"), font=FONT_BODY, text_color="gray")
+        drop_lbl.pack(anchor="w", padx=PAD, pady=(0, PAD_SM))
         self._add_i18n(drop_lbl, "drop_hint")
 
-        body = ttk.Frame(p)
-        body.pack(fill=tk.X, padx=8, pady=4)
-        prev_frame = ttk.LabelFrame(body, text=self._t("preview"))
-        prev_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
-        self._add_i18n(prev_frame, "preview", "label")
-        self._preview_label = ttk.Label(prev_frame, text="—", width=28)
-        self._preview_label.pack(padx=8, pady=(8, 4))
-        preview_ctrl = ttk.Frame(prev_frame)
-        preview_ctrl.pack(fill=tk.X, padx=8, pady=(0, 8))
-        self._add_i18n(ttk.Label(preview_ctrl, text=""), "preview_position").pack(anchor=tk.W)
-        ttk.Scale(
+        body = ctk.CTkFrame(p, fg_color="transparent")
+        body.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        prev_frame = card(body)
+        prev_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, PAD_SM))
+        self._add_i18n(section_title(prev_frame, self._t("preview")), "preview").pack(
+            anchor="w", padx=PAD, pady=(PAD_SM, 4)
+        )
+        self._preview_label = ctk.CTkLabel(prev_frame, text="—", width=224, height=126, font=FONT_BODY)
+        self._preview_label.pack(padx=PAD, pady=(0, PAD_SM))
+        preview_ctrl = ctk.CTkFrame(prev_frame, fg_color="transparent")
+        preview_ctrl.pack(fill=tk.X, padx=PAD, pady=(0, PAD_SM))
+        self._add_i18n(
+            ctk.CTkLabel(preview_ctrl, text="", font=FONT_BODY, anchor="w"), "preview_position"
+        ).pack(fill=tk.X)
+        ctk.CTkSlider(
             preview_ctrl,
             from_=0,
             to=100,
-            orient=tk.HORIZONTAL,
             variable=self._preview_pct,
             command=self._on_preview_seek,
-        ).pack(fill=tk.X)
-        preview_btns = ttk.Frame(preview_ctrl)
-        preview_btns.pack(fill=tk.X, pady=(4, 0))
-        self._add_i18n(ttk.Button(preview_btns, text="", command=self._preview_play), "preview_play").pack(
-            side=tk.LEFT, padx=(0, 4)
+        ).pack(fill=tk.X, pady=(PAD_SM, 0))
+        preview_btns = ctk.CTkFrame(preview_ctrl, fg_color="transparent")
+        preview_btns.pack(fill=tk.X, pady=(PAD_SM, 0))
+        self._add_i18n(secondary_button(preview_btns, text="", command=self._preview_play), "preview_play").pack(
+            side=tk.LEFT, padx=(0, PAD_SM)
         )
-        self._add_i18n(ttk.Button(preview_btns, text="", command=self._preview_stop), "preview_stop").pack(side=tk.LEFT)
+        self._add_i18n(secondary_button(preview_btns, text="", command=self._preview_stop), "preview_stop").pack(
+            side=tk.LEFT
+        )
 
-        info_frame = ttk.LabelFrame(body, text=self._t("file_info"))
+        info_frame = card(body)
         info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._add_i18n(info_frame, "file_info", "label")
-        self._info_text = tk.Text(info_frame, wrap=tk.WORD, height=14, font=("Consolas", 9))
-        scroll = ttk.Scrollbar(info_frame, orient=tk.VERTICAL, command=self._info_text.yview)
-        self._info_text.configure(yscrollcommand=scroll.set)
-        self._info_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0), pady=8)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 8), pady=8)
-        self._info_text.configure(state=tk.DISABLED)
-
-        settings = ttk.LabelFrame(p, text=self._t("settings"))
-        settings.pack(fill=tk.X, padx=8, pady=6)
-        self._add_i18n(settings, "settings", "label")
-        g = ttk.Frame(settings)
-        g.pack(fill=tk.X, padx=8, pady=8)
-        self._add_i18n(ttk.Label(g, text=""), "format").grid(row=0, column=0, sticky=tk.W, padx=(0, 8))
-        ttk.Combobox(g, textvariable=self._format, values=list_supported_formats(), state="readonly", width=8).grid(
-            row=0, column=1, sticky=tk.W
+        self._add_i18n(section_title(info_frame, self._t("file_info")), "file_info").pack(
+            anchor="w", padx=PAD, pady=(PAD_SM, 4)
         )
-        self._add_i18n(ttk.Label(g, text=""), "quality_preset").grid(row=0, column=2, sticky=tk.W, padx=(16, 8))
-        self._quality_preset_cb = ttk.Combobox(
-            g, textvariable=self._quality_preset, values=list_quality_presets(), state="readonly", width=14
+        self._info_text = ctk.CTkTextbox(info_frame, height=220, font=FONT_MONO, wrap="word")
+        self._info_text.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=(0, PAD_SM))
+        self._info_text.configure(state="disabled")
+
+        settings = card(p)
+        settings.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(section_title(settings, self._t("settings")), "settings").pack(
+            anchor="w", padx=PAD, pady=(PAD_SM, 4)
+        )
+        g = ctk.CTkFrame(settings, fg_color="transparent")
+        g.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "format").grid(row=0, column=0, sticky=tk.W, padx=(0, PAD_SM))
+        ctk.CTkComboBox(
+            g, values=list_supported_formats(), variable=self._format, width=100, state="readonly", font=FONT_BODY
+        ).grid(row=0, column=1, sticky=tk.W)
+        self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "quality_preset").grid(
+            row=0, column=2, sticky=tk.W, padx=(PAD, PAD_SM)
+        )
+        self._quality_preset_cb = ctk.CTkComboBox(
+            g,
+            values=list_quality_presets(),
+            variable=self._quality_preset,
+            width=160,
+            state="readonly",
+            font=FONT_BODY,
         )
         self._quality_preset_cb.grid(row=0, column=3, sticky=tk.W)
-        self._add_i18n(ttk.Label(g, text=""), "resolution").grid(row=1, column=0, sticky=tk.W, padx=(0, 8), pady=4)
-        ttk.Combobox(g, textvariable=self._resolution, values=list(RESOLUTIONS.keys()), state="readonly", width=10).grid(
-            row=1, column=1, sticky=tk.W, pady=4
+        self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "resolution").grid(
+            row=1, column=0, sticky=tk.W, padx=(0, PAD_SM), pady=PAD_SM
         )
-        self._add_i18n(ttk.Label(g, text=""), "crf").grid(row=1, column=2, sticky=tk.W, padx=(16, 8), pady=4)
-        ttk.Scale(g, from_=0, to=51, orient=tk.HORIZONTAL, variable=self._crf).grid(row=1, column=3, sticky=tk.EW, pady=4)
-        self._add_i18n(ttk.Label(g, text=""), "video_stream").grid(row=2, column=0, sticky=tk.W, pady=4)
-        self._video_stream_cb = ttk.Combobox(g, textvariable=self._video_stream_idx, state="readonly", width=24)
-        self._video_stream_cb.grid(row=2, column=1, columnspan=3, sticky=tk.EW, pady=4)
-        self._add_i18n(ttk.Label(g, text=""), "audio_stream").grid(row=3, column=0, sticky=tk.W, pady=4)
-        self._audio_stream_cb = ttk.Combobox(g, textvariable=self._audio_stream_idx, state="readonly", width=24)
-        self._audio_stream_cb.grid(row=3, column=1, columnspan=3, sticky=tk.EW, pady=4)
-        self._add_i18n(ttk.Label(g, text=""), "video_codec").grid(row=4, column=0, sticky=tk.W, pady=4)
-        ttk.Entry(g, textvariable=self._video_codec, width=12).grid(row=4, column=1, sticky=tk.W, pady=4)
-        self._add_i18n(ttk.Label(g, text=""), "audio_codec").grid(row=4, column=2, sticky=tk.W, padx=(16, 8), pady=4)
-        ttk.Entry(g, textvariable=self._audio_codec, width=12).grid(row=4, column=3, sticky=tk.W, pady=4)
-        self._add_i18n(ttk.Label(g, text=""), "video_bitrate").grid(row=5, column=0, sticky=tk.W, pady=4)
-        ttk.Entry(g, textvariable=self._video_bitrate, width=12).grid(row=5, column=1, sticky=tk.W, pady=4)
+        ctk.CTkComboBox(
+            g,
+            values=list(RESOLUTIONS.keys()),
+            variable=self._resolution,
+            width=120,
+            state="readonly",
+            font=FONT_BODY,
+        ).grid(row=1, column=1, sticky=tk.W, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "crf").grid(
+            row=1, column=2, sticky=tk.W, padx=(PAD, PAD_SM), pady=PAD_SM
+        )
+        ctk.CTkSlider(g, from_=0, to=51, variable=self._crf, number_of_steps=51).grid(
+            row=1, column=3, sticky=tk.EW, pady=PAD_SM
+        )
+        self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "video_stream").grid(row=2, column=0, sticky=tk.W, pady=PAD_SM)
+        self._video_stream_cb = ctk.CTkComboBox(g, variable=self._video_stream_idx, state="readonly", font=FONT_BODY)
+        self._video_stream_cb.grid(row=2, column=1, columnspan=3, sticky=tk.EW, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "audio_stream").grid(row=3, column=0, sticky=tk.W, pady=PAD_SM)
+        self._audio_stream_cb = ctk.CTkComboBox(g, variable=self._audio_stream_idx, state="readonly", font=FONT_BODY)
+        self._audio_stream_cb.grid(row=3, column=1, columnspan=3, sticky=tk.EW, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "video_codec").grid(row=4, column=0, sticky=tk.W, pady=PAD_SM)
+        ctk.CTkEntry(g, textvariable=self._video_codec, width=120, font=FONT_BODY).grid(row=4, column=1, sticky=tk.W, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "audio_codec").grid(
+            row=4, column=2, sticky=tk.W, padx=(PAD, PAD_SM), pady=PAD_SM
+        )
+        ctk.CTkEntry(g, textvariable=self._audio_codec, width=120, font=FONT_BODY).grid(row=4, column=3, sticky=tk.W, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "video_bitrate").grid(row=5, column=0, sticky=tk.W, pady=PAD_SM)
+        ctk.CTkEntry(g, textvariable=self._video_bitrate, width=120, font=FONT_BODY).grid(row=5, column=1, sticky=tk.W, pady=PAD_SM)
         self._add_i18n(
-            ttk.Checkbutton(g, text="", variable=self._copy_streams),
-            "copy_streams",
+            ctk.CTkCheckBox(g, text="", variable=self._copy_streams, font=FONT_BODY), "copy_streams"
         ).grid(row=6, column=0, columnspan=2, sticky=tk.W)
         self._add_i18n(
-            ttk.Checkbutton(g, text="", variable=self._overwrite),
-            "overwrite",
+            ctk.CTkCheckBox(g, text="", variable=self._overwrite, font=FONT_BODY), "overwrite"
         ).grid(row=6, column=2, columnspan=2, sticky=tk.W)
         self._add_i18n(
-            ttk.Checkbutton(g, text="", variable=self._hw_encode),
-            "hw_encode",
+            ctk.CTkCheckBox(g, text="", variable=self._hw_encode, font=FONT_BODY), "hw_encode"
         ).grid(row=7, column=0, columnspan=2, sticky=tk.W)
         self._add_i18n(
-            ttk.Checkbutton(g, text="", variable=self._prefer_hevc),
-            "prefer_hevc",
+            ctk.CTkCheckBox(g, text="", variable=self._prefer_hevc, font=FONT_BODY), "prefer_hevc"
         ).grid(row=7, column=2, columnspan=2, sticky=tk.W)
         self._add_i18n(
-            ttk.Checkbutton(g, text="", variable=self._verify),
-            "verify",
+            ctk.CTkCheckBox(g, text="", variable=self._verify, font=FONT_BODY), "verify"
         ).grid(row=8, column=0, columnspan=2, sticky=tk.W)
         self._add_i18n(
-            ttk.Checkbutton(g, text="", variable=self._show_cmd),
-            "show_cmd",
+            ctk.CTkCheckBox(g, text="", variable=self._show_cmd, font=FONT_BODY), "show_cmd"
         ).grid(row=8, column=2, columnspan=2, sticky=tk.W)
         g.columnconfigure(3, weight=1)
 
-        out_row = ttk.Frame(settings)
-        out_row.pack(fill=tk.X, padx=8, pady=(0, 8))
-        self._add_i18n(ttk.Label(out_row, text=""), "output").pack(side=tk.LEFT)
-        ttk.Entry(out_row, textvariable=self._output_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
-        ttk.Button(out_row, text="...", width=4, command=self._browse_output).pack(side=tk.LEFT)
+        out_row = ctk.CTkFrame(settings, fg_color="transparent")
+        out_row.pack(fill=tk.X, padx=PAD, pady=(0, PAD_SM))
+        self._add_i18n(ctk.CTkLabel(out_row, text="", font=FONT_BODY), "output").pack(side=tk.LEFT)
+        ctk.CTkEntry(out_row, textvariable=self._output_path, font=FONT_BODY).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=PAD_SM
+        )
+        secondary_button(out_row, text="...", width=40, command=self._browse_output).pack(side=tk.LEFT)
 
     def _build_audio_tab(self) -> None:
         p = self._tab_audio_body
-        f = ttk.LabelFrame(p, text=self._t("tab_audio"))
-        f.pack(fill=tk.X, padx=8, pady=8)
-        self._add_i18n(f, "tab_audio", "label")
+        f = card(p)
+        f.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(section_title(f, self._t("tab_audio")), "tab_audio").pack(anchor="w", padx=PAD, pady=(PAD_SM, 4))
         self._add_i18n(
-            ttk.Checkbutton(f, text="", variable=self._extract_audio),
-            "extract_audio",
-        ).pack(anchor=tk.W, padx=8, pady=4)
-        row = ttk.Frame(f)
-        row.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(row, text=""), "audio_format").pack(side=tk.LEFT)
-        ttk.Combobox(row, textvariable=self._audio_format, values=list_audio_formats(), state="readonly", width=8).pack(
-            side=tk.LEFT, padx=8
+            ctk.CTkCheckBox(f, text="", variable=self._extract_audio, font=FONT_BODY), "extract_audio"
+        ).pack(anchor="w", padx=PAD, pady=PAD_SM)
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(row, text="", font=FONT_BODY), "audio_format").pack(side=tk.LEFT)
+        ctk.CTkComboBox(
+            row, values=list_audio_formats(), variable=self._audio_format, width=100, state="readonly", font=FONT_BODY
+        ).pack(side=tk.LEFT, padx=PAD_SM)
+        self._add_i18n(
+            ctk.CTkCheckBox(f, text="", variable=self._normalize, font=FONT_BODY), "normalize"
+        ).pack(anchor="w", padx=PAD, pady=PAD_SM)
+        row2 = ctk.CTkFrame(f, fg_color="transparent")
+        row2.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(row2, text="", font=FONT_BODY), "add_audio").pack(side=tk.LEFT)
+        ctk.CTkEntry(row2, textvariable=self._external_audio, font=FONT_BODY).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=PAD_SM
         )
+        secondary_button(row2, text="...", width=40, command=self._browse_external_audio).pack(side=tk.LEFT)
+        row3 = ctk.CTkFrame(f, fg_color="transparent")
+        row3.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(row3, text="", font=FONT_BODY), "embed_sub").pack(side=tk.LEFT)
+        ctk.CTkEntry(row3, textvariable=self._subtitle_path, font=FONT_BODY).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=PAD_SM
+        )
+        secondary_button(row3, text="...", width=40, command=self._browse_subtitle).pack(side=tk.LEFT)
         self._add_i18n(
-            ttk.Checkbutton(f, text="", variable=self._normalize),
-            "normalize",
-        ).pack(anchor=tk.W, padx=8, pady=4)
-        row2 = ttk.Frame(f)
-        row2.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(row2, text=""), "add_audio").pack(side=tk.LEFT)
-        ttk.Entry(row2, textvariable=self._external_audio).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
-        ttk.Button(row2, text="...", width=4, command=self._browse_external_audio).pack(side=tk.LEFT)
-        row3 = ttk.Frame(f)
-        row3.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(row3, text=""), "embed_sub").pack(side=tk.LEFT)
-        ttk.Entry(row3, textvariable=self._subtitle_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
-        ttk.Button(row3, text="...", width=4, command=self._browse_subtitle).pack(side=tk.LEFT)
+            ctk.CTkCheckBox(f, text="", variable=self._extract_sub, font=FONT_BODY), "extract_sub"
+        ).pack(anchor="w", padx=PAD, pady=PAD_SM)
+        row4 = ctk.CTkFrame(f, fg_color="transparent")
+        row4.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(row4, text="", font=FONT_BODY), "subtitle_stream").pack(side=tk.LEFT)
+        self._subtitle_stream_cb = ctk.CTkComboBox(
+            row4, variable=self._subtitle_stream_idx, state="readonly", font=FONT_BODY
+        )
+        self._subtitle_stream_cb.pack(side=tk.LEFT, padx=PAD_SM, fill=tk.X, expand=True)
         self._add_i18n(
-            ttk.Checkbutton(f, text="", variable=self._extract_sub),
-            "extract_sub",
-        ).pack(anchor=tk.W, padx=8, pady=4)
-        row4 = ttk.Frame(f)
-        row4.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(row4, text=""), "subtitle_stream").pack(side=tk.LEFT)
-        self._subtitle_stream_cb = ttk.Combobox(row4, textvariable=self._subtitle_stream_idx, state="readonly", width=28)
-        self._subtitle_stream_cb.pack(side=tk.LEFT, padx=8, fill=tk.X, expand=True)
-        self._add_i18n(
-            ttk.Checkbutton(f, text="", variable=self._subtitle_burn_in),
-            "subtitle_burn_in",
-        ).pack(anchor=tk.W, padx=8, pady=4)
-        row5 = ttk.Frame(f)
-        row5.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(row5, text=""), "extract_sub_format").pack(side=tk.LEFT)
-        ttk.Combobox(
+            ctk.CTkCheckBox(f, text="", variable=self._subtitle_burn_in, font=FONT_BODY), "subtitle_burn_in"
+        ).pack(anchor="w", padx=PAD, pady=PAD_SM)
+        row5 = ctk.CTkFrame(f, fg_color="transparent")
+        row5.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(row5, text="", font=FONT_BODY), "extract_sub_format").pack(side=tk.LEFT)
+        ctk.CTkComboBox(
             row5,
-            textvariable=self._extract_sub_format,
             values=["srt", "ass", "vtt"],
+            variable=self._extract_sub_format,
+            width=100,
             state="readonly",
-            width=8,
-        ).pack(side=tk.LEFT, padx=8)
+            font=FONT_BODY,
+        ).pack(side=tk.LEFT, padx=PAD_SM)
         self._add_i18n(
-            ttk.Checkbutton(f, text="", variable=self._replace_audio),
-            "replace_audio",
-        ).pack(anchor=tk.W, padx=8, pady=4)
-        row6 = ttk.Frame(f)
-        row6.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(row6, text=""), "audio_delay").pack(side=tk.LEFT)
-        ttk.Entry(row6, textvariable=self._audio_delay_ms, width=10).pack(side=tk.LEFT, padx=8)
-        row7 = ttk.Frame(f)
-        row7.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(row7, text=""), "extra_audio_tracks").pack(side=tk.LEFT)
-        ttk.Entry(row7, textvariable=self._extra_audio_tracks).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
+            ctk.CTkCheckBox(f, text="", variable=self._replace_audio, font=FONT_BODY), "replace_audio"
+        ).pack(anchor="w", padx=PAD, pady=PAD_SM)
+        row6 = ctk.CTkFrame(f, fg_color="transparent")
+        row6.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(row6, text="", font=FONT_BODY), "audio_delay").pack(side=tk.LEFT)
+        ctk.CTkEntry(row6, textvariable=self._audio_delay_ms, width=100, font=FONT_BODY).pack(side=tk.LEFT, padx=PAD_SM)
+        row7 = ctk.CTkFrame(f, fg_color="transparent")
+        row7.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(row7, text="", font=FONT_BODY), "extra_audio_tracks").pack(side=tk.LEFT)
+        ctk.CTkEntry(row7, textvariable=self._extra_audio_tracks, font=FONT_BODY).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=PAD_SM
+        )
 
     def _build_trim_tab(self) -> None:
         p = self._tab_trim_body
-        f = ttk.LabelFrame(p, text=self._t("tab_trim"))
-        f.pack(fill=tk.X, padx=8, pady=8)
-        self._add_i18n(f, "tab_trim", "label")
-        r1 = ttk.Frame(f)
-        r1.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(r1, text="", width=18), "trim_start").pack(side=tk.LEFT)
-        ttk.Entry(r1, textvariable=self._trim_start, width=12).pack(side=tk.LEFT, padx=8)
-        self._add_i18n(ttk.Label(r1, text=""), "trim_end").pack(side=tk.LEFT, padx=(16, 0))
-        ttk.Entry(r1, textvariable=self._trim_end, width=12).pack(side=tk.LEFT, padx=8)
-        self._add_i18n(ttk.Label(f, text=""), "preset_speed").pack(anchor=tk.W, padx=8, pady=(8, 0))
-        ttk.Combobox(
+        f = card(p)
+        f.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(section_title(f, self._t("tab_trim")), "tab_trim").pack(anchor="w", padx=PAD, pady=(PAD_SM, 4))
+        r1 = ctk.CTkFrame(f, fg_color="transparent")
+        r1.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(r1, text="", width=140, font=FONT_BODY), "trim_start").pack(side=tk.LEFT)
+        ctk.CTkEntry(r1, textvariable=self._trim_start, width=120, font=FONT_BODY).pack(side=tk.LEFT, padx=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(r1, text="", font=FONT_BODY), "trim_end").pack(side=tk.LEFT, padx=(PAD, 0))
+        ctk.CTkEntry(r1, textvariable=self._trim_end, width=120, font=FONT_BODY).pack(side=tk.LEFT, padx=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(f, text="", font=FONT_BODY), "preset_speed").pack(anchor="w", padx=PAD, pady=(PAD_SM, 0))
+        ctk.CTkComboBox(
             f,
-            textvariable=self._preset,
             values=["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"],
+            variable=self._preset,
+            width=160,
             state="readonly",
-            width=16,
-        ).pack(anchor=tk.W, padx=8, pady=4)
+            font=FONT_BODY,
+        ).pack(anchor="w", padx=PAD, pady=PAD_SM)
         self._add_i18n(
-            ttk.Checkbutton(f, text="", variable=self._gif_mode),
-            "gif_mode",
-        ).pack(anchor=tk.W, padx=8, pady=4)
-        meta = ttk.LabelFrame(p, text=self._t("metadata"))
-        meta.pack(fill=tk.X, padx=8, pady=8)
-        self._add_i18n(meta, "metadata", "label")
-        r2 = ttk.Frame(meta)
-        r2.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(r2, text="", width=12), "metadata_title").pack(side=tk.LEFT)
-        ttk.Entry(r2, textvariable=self._meta_title).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
-        r3 = ttk.Frame(meta)
-        r3.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(r3, text="", width=12), "metadata_author").pack(side=tk.LEFT)
-        ttk.Entry(r3, textvariable=self._meta_author).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
-        r4 = ttk.Frame(meta)
-        r4.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(r4, text="", width=12), "metadata_date").pack(side=tk.LEFT)
-        ttk.Entry(r4, textvariable=self._metadata_date).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
+            ctk.CTkCheckBox(f, text="", variable=self._gif_mode, font=FONT_BODY), "gif_mode"
+        ).pack(anchor="w", padx=PAD, pady=PAD_SM)
+        meta = card(p)
+        meta.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(section_title(meta, self._t("metadata")), "metadata").pack(anchor="w", padx=PAD, pady=(PAD_SM, 4))
+        r2 = ctk.CTkFrame(meta, fg_color="transparent")
+        r2.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(r2, text="", width=100, font=FONT_BODY), "metadata_title").pack(side=tk.LEFT)
+        ctk.CTkEntry(r2, textvariable=self._meta_title, font=FONT_BODY).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=PAD_SM)
+        r3 = ctk.CTkFrame(meta, fg_color="transparent")
+        r3.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(r3, text="", width=100, font=FONT_BODY), "metadata_author").pack(side=tk.LEFT)
+        ctk.CTkEntry(r3, textvariable=self._meta_author, font=FONT_BODY).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=PAD_SM)
+        r4 = ctk.CTkFrame(meta, fg_color="transparent")
+        r4.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(r4, text="", width=100, font=FONT_BODY), "metadata_date").pack(side=tk.LEFT)
+        ctk.CTkEntry(r4, textvariable=self._metadata_date, font=FONT_BODY).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=PAD_SM)
         self._add_i18n(
-            ttk.Checkbutton(meta, text="", variable=self._strip_meta),
-            "strip_meta",
-        ).pack(anchor=tk.W, padx=8, pady=4)
-        r5 = ttk.Frame(meta)
-        r5.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(r5, text=""), "cover_art").pack(side=tk.LEFT)
-        ttk.Entry(r5, textvariable=self._cover_art_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
-        self._add_i18n(ttk.Button(r5, text="", command=self._browse_cover_art), "browse").pack(side=tk.LEFT)
-        filt = ttk.LabelFrame(p, text=self._t("tab_advanced"))
-        filt.pack(fill=tk.X, padx=8, pady=8)
+            ctk.CTkCheckBox(meta, text="", variable=self._strip_meta, font=FONT_BODY), "strip_meta"
+        ).pack(anchor="w", padx=PAD, pady=PAD_SM)
+        r5 = ctk.CTkFrame(meta, fg_color="transparent")
+        r5.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(r5, text="", font=FONT_BODY), "cover_art").pack(side=tk.LEFT)
+        ctk.CTkEntry(r5, textvariable=self._cover_art_path, font=FONT_BODY).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=PAD_SM
+        )
+        self._add_i18n(secondary_button(r5, text="", command=self._browse_cover_art), "browse").pack(side=tk.LEFT)
+        filt = card(p)
+        filt.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(section_title(filt, self._t("tab_advanced")), "tab_advanced").pack(
+            anchor="w", padx=PAD, pady=(PAD_SM, 4)
+        )
         self._add_i18n(
-            ttk.Checkbutton(filt, text="", variable=self._preserve_chapters, command=self._save_settings),
+            ctk.CTkCheckBox(filt, text="", variable=self._preserve_chapters, command=self._save_settings, font=FONT_BODY),
             "preserve_chapters",
-        ).pack(anchor=tk.W, padx=8, pady=4)
+        ).pack(anchor="w", padx=PAD, pady=PAD_SM)
         self._add_i18n(
-            ttk.Checkbutton(filt, text="", variable=self._deinterlace),
-            "deinterlace",
-        ).pack(anchor=tk.W, padx=8, pady=4)
+            ctk.CTkCheckBox(filt, text="", variable=self._deinterlace, font=FONT_BODY), "deinterlace"
+        ).pack(anchor="w", padx=PAD, pady=PAD_SM)
         self._add_i18n(
-            ttk.Checkbutton(filt, text="", variable=self._denoise),
-            "denoise",
-        ).pack(anchor=tk.W, padx=8, pady=4)
+            ctk.CTkCheckBox(filt, text="", variable=self._denoise, font=FONT_BODY), "denoise"
+        ).pack(anchor="w", padx=PAD, pady=PAD_SM)
 
     def _build_advanced_tab(self) -> None:
         p = self._tab_advanced_body
-        merge_frame = ttk.LabelFrame(p, text=self._t("merge_files"))
-        merge_frame.pack(fill=tk.X, padx=8, pady=8)
-        self._add_i18n(merge_frame, "merge_files", "label")
-        merge_body = ttk.Frame(merge_frame)
-        merge_body.pack(fill=tk.X, padx=8, pady=8)
-        self._merge_listbox = tk.Listbox(merge_body, height=8)
-        self._merge_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        merge_sb = ttk.Scrollbar(merge_body, orient=tk.VERTICAL, command=self._merge_listbox.yview)
+        merge_frame = card(p)
+        merge_frame.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(section_title(merge_frame, self._t("merge_files")), "merge_files").pack(
+            anchor="w", padx=PAD, pady=(PAD_SM, 4)
+        )
+        merge_body = ctk.CTkFrame(merge_frame, fg_color="transparent")
+        merge_body.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        list_wrap = ctk.CTkFrame(merge_body, corner_radius=10)
+        list_wrap.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._merge_listbox = tk.Listbox(list_wrap, height=8, borderwidth=0, highlightthickness=0)
+        self._merge_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=4, pady=4)
+        merge_sb = ttk.Scrollbar(list_wrap, orient=tk.VERTICAL, command=self._merge_listbox.yview)
         self._merge_listbox.configure(yscrollcommand=merge_sb.set)
-        merge_sb.pack(side=tk.LEFT, fill=tk.Y)
-        merge_btns = ttk.Frame(merge_body)
-        merge_btns.pack(side=tk.LEFT, padx=8)
-        self._add_i18n(ttk.Button(merge_btns, text="", command=self._merge_add_files), "add_files").pack(
+        merge_sb.pack(side=tk.LEFT, fill=tk.Y, pady=4)
+        merge_btns = ctk.CTkFrame(merge_body, fg_color="transparent")
+        merge_btns.pack(side=tk.LEFT, padx=PAD_SM)
+        self._add_i18n(secondary_button(merge_btns, text="", command=self._merge_add_files), "add_files").pack(
             fill=tk.X, pady=2
         )
-        self._add_i18n(ttk.Button(merge_btns, text="", command=self._merge_clear), "clear_queue").pack(
+        self._add_i18n(secondary_button(merge_btns, text="", command=self._merge_clear), "clear_queue").pack(
             fill=tk.X, pady=2
         )
 
-        opts = ttk.LabelFrame(p, text=self._t("tab_advanced"))
-        opts.pack(fill=tk.X, padx=8, pady=(0, 8))
-        self._add_i18n(opts, "tab_advanced", "label")
-        og = ttk.Frame(opts)
-        og.pack(fill=tk.X, padx=8, pady=8)
-        self._add_i18n(ttk.Label(og, text=""), "crop").grid(row=0, column=0, sticky=tk.W, padx=(0, 8))
-        ttk.Entry(og, textvariable=self._crop, width=28).grid(row=0, column=1, sticky=tk.W, pady=2)
-        self._add_i18n(ttk.Label(og, text=""), "rotation").grid(row=1, column=0, sticky=tk.W, padx=(0, 8), pady=2)
-        ttk.Combobox(og, textvariable=self._rotation, values=["0", "90", "180", "270"], state="readonly", width=8).grid(
-            row=1, column=1, sticky=tk.W, pady=2
+        opts = card(p)
+        opts.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(section_title(opts, self._t("tab_advanced")), "tab_advanced").pack(
+            anchor="w", padx=PAD, pady=(PAD_SM, 4)
         )
-        self._add_i18n(ttk.Label(og, text=""), "fps").grid(row=2, column=0, sticky=tk.W, padx=(0, 8), pady=2)
-        ttk.Entry(og, textvariable=self._fps, width=12).grid(row=2, column=1, sticky=tk.W, pady=2)
-        wm_row = ttk.Frame(opts)
-        wm_row.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(wm_row, text=""), "watermark").pack(side=tk.LEFT)
-        ttk.Entry(wm_row, textvariable=self._watermark_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
-        self._add_i18n(ttk.Button(wm_row, text="", command=self._browse_watermark), "browse").pack(side=tk.LEFT)
-        wm_pos_row = ttk.Frame(opts)
-        wm_pos_row.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(wm_pos_row, text=""), "watermark_position").pack(side=tk.LEFT)
-        ttk.Entry(wm_pos_row, textvariable=self._watermark_position, width=12).pack(side=tk.LEFT, padx=8)
+        og = ctk.CTkFrame(opts, fg_color="transparent")
+        og.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(og, text="", font=FONT_BODY), "crop").grid(row=0, column=0, sticky=tk.W, padx=(0, PAD_SM))
+        ctk.CTkEntry(og, textvariable=self._crop, width=220, font=FONT_BODY).grid(row=0, column=1, sticky=tk.W, pady=2)
+        self._add_i18n(ctk.CTkLabel(og, text="", font=FONT_BODY), "rotation").grid(
+            row=1, column=0, sticky=tk.W, padx=(0, PAD_SM), pady=2
+        )
+        ctk.CTkComboBox(
+            og, values=["0", "90", "180", "270"], variable=self._rotation, width=100, state="readonly", font=FONT_BODY
+        ).grid(row=1, column=1, sticky=tk.W, pady=2)
+        self._add_i18n(ctk.CTkLabel(og, text="", font=FONT_BODY), "fps").grid(row=2, column=0, sticky=tk.W, padx=(0, PAD_SM), pady=2)
+        ctk.CTkEntry(og, textvariable=self._fps, width=120, font=FONT_BODY).grid(row=2, column=1, sticky=tk.W, pady=2)
+        wm_row = ctk.CTkFrame(opts, fg_color="transparent")
+        wm_row.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(wm_row, text="", font=FONT_BODY), "watermark").pack(side=tk.LEFT)
+        ctk.CTkEntry(wm_row, textvariable=self._watermark_path, font=FONT_BODY).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=PAD_SM
+        )
+        self._add_i18n(secondary_button(wm_row, text="", command=self._browse_watermark), "browse").pack(side=tk.LEFT)
+        wm_pos_row = ctk.CTkFrame(opts, fg_color="transparent")
+        wm_pos_row.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(wm_pos_row, text="", font=FONT_BODY), "watermark_position").pack(side=tk.LEFT)
+        ctk.CTkEntry(wm_pos_row, textvariable=self._watermark_position, width=120, font=FONT_BODY).pack(
+            side=tk.LEFT, padx=PAD_SM
+        )
         self._add_i18n(
-            ttk.Checkbutton(opts, text="", variable=self._two_pass),
-            "two_pass",
-        ).pack(anchor=tk.W, padx=8, pady=(0, 8))
+            ctk.CTkCheckBox(opts, text="", variable=self._two_pass, font=FONT_BODY), "two_pass"
+        ).pack(anchor="w", padx=PAD, pady=(0, PAD_SM))
 
     def _build_batch_tab(self) -> None:
         p = self._tab_batch_body
-        f = ttk.LabelFrame(p, text=self._t("batch_queue"))
-        f.pack(fill=tk.X, padx=8, pady=8)
-        self._add_i18n(f, "batch_queue", "label")
-        self._batch_list = tk.Listbox(f, height=12)
-        self._batch_list.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0), pady=8)
-        sb = ttk.Scrollbar(f, orient=tk.VERTICAL, command=self._batch_list.yview)
+        f = card(p)
+        f.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(section_title(f, self._t("batch_queue")), "batch_queue").pack(
+            anchor="w", padx=PAD, pady=(PAD_SM, 4)
+        )
+        batch_body = ctk.CTkFrame(f, fg_color="transparent")
+        batch_body.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        list_wrap = ctk.CTkFrame(batch_body, corner_radius=10)
+        list_wrap.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._batch_list = tk.Listbox(list_wrap, height=12, borderwidth=0, highlightthickness=0)
+        self._batch_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=4, pady=4)
+        sb = ttk.Scrollbar(list_wrap, orient=tk.VERTICAL, command=self._batch_list.yview)
         self._batch_list.configure(yscrollcommand=sb.set)
-        sb.pack(side=tk.LEFT, fill=tk.Y, pady=8)
-        btns = ttk.Frame(f)
-        btns.pack(side=tk.LEFT, padx=8, pady=8)
-        self._add_i18n(ttk.Button(btns, text="", command=self._batch_add_files), "add_files").pack(fill=tk.X, pady=2)
-        self._add_i18n(ttk.Button(btns, text="", command=self._batch_add_folder), "browse_folder").pack(
+        sb.pack(side=tk.LEFT, fill=tk.Y, pady=4)
+        btns = ctk.CTkFrame(batch_body, fg_color="transparent")
+        btns.pack(side=tk.LEFT, padx=PAD_SM, pady=PAD_SM)
+        self._add_i18n(secondary_button(btns, text="", command=self._batch_add_files), "add_files").pack(
             fill=tk.X, pady=2
         )
-        self._add_i18n(ttk.Button(btns, text="", command=self._batch_clear), "clear_queue").pack(fill=tk.X, pady=2)
-        self._add_i18n(ttk.Button(btns, text="", command=self._start_batch), "convert").pack(fill=tk.X, pady=(12, 2))
-        self._add_i18n(ttk.Button(btns, text="", command=self._pause_batch), "pause_batch").pack(fill=tk.X, pady=2)
-        self._add_i18n(ttk.Button(btns, text="", command=self._resume_batch), "resume_batch").pack(fill=tk.X, pady=2)
-        opts_row = ttk.Frame(p)
-        opts_row.pack(fill=tk.X, padx=8, pady=4)
+        self._add_i18n(secondary_button(btns, text="", command=self._batch_add_folder), "browse_folder").pack(
+            fill=tk.X, pady=2
+        )
+        self._add_i18n(secondary_button(btns, text="", command=self._batch_clear), "clear_queue").pack(fill=tk.X, pady=2)
+        self._add_i18n(primary_button(btns, text="", command=self._start_batch), "convert").pack(fill=tk.X, pady=(PAD, 2))
+        self._add_i18n(secondary_button(btns, text="", command=self._pause_batch), "pause_batch").pack(fill=tk.X, pady=2)
+        self._add_i18n(secondary_button(btns, text="", command=self._resume_batch), "resume_batch").pack(fill=tk.X, pady=2)
+        opts_row = ctk.CTkFrame(p, fg_color="transparent")
+        opts_row.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
         self._add_i18n(
-            ttk.Checkbutton(opts_row, text="", variable=self._recursive_batch, command=self._save_settings),
+            ctk.CTkCheckBox(opts_row, text="", variable=self._recursive_batch, command=self._save_settings, font=FONT_BODY),
             "recursive_batch",
         ).pack(side=tk.LEFT)
-        self._add_i18n(ttk.Label(opts_row, text=""), "parallel_batch").pack(side=tk.LEFT, padx=(16, 4))
-        ttk.Spinbox(
-            opts_row,
-            from_=1,
-            to=4,
-            textvariable=self._parallel_batch,
-            width=4,
-            command=self._save_settings,
-        ).pack(side=tk.LEFT)
-        row = ttk.Frame(p)
-        row.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(row, text=""), "output_dir").pack(side=tk.LEFT)
-        ttk.Entry(row, textvariable=self._batch_output_dir).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
-        ttk.Button(row, text="...", width=4, command=self._browse_batch_dir).pack(side=tk.LEFT)
+        self._add_i18n(ctk.CTkLabel(opts_row, text="", font=FONT_BODY), "parallel_batch").pack(side=tk.LEFT, padx=(PAD, 4))
+        ctk.CTkEntry(opts_row, textvariable=self._parallel_batch, width=60, font=FONT_BODY).pack(side=tk.LEFT)
+        row = ctk.CTkFrame(p, fg_color="transparent")
+        row.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(row, text="", font=FONT_BODY), "output_dir").pack(side=tk.LEFT)
+        ctk.CTkEntry(row, textvariable=self._batch_output_dir, font=FONT_BODY).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=PAD_SM
+        )
+        secondary_button(row, text="...", width=40, command=self._browse_batch_dir).pack(side=tk.LEFT)
 
     def _build_watch_tab(self) -> None:
         p = self._tab_watch_body
-        f = ttk.LabelFrame(p, text=self._t("tab_watch"))
-        f.pack(fill=tk.X, padx=8, pady=8)
-        self._add_i18n(f, "tab_watch", "label")
-        row = ttk.Frame(f)
-        row.pack(fill=tk.X, padx=8, pady=4)
-        self._add_i18n(ttk.Label(row, text=""), "watch_folder").pack(side=tk.LEFT)
-        ttk.Entry(row, textvariable=self._watch_folder).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
-        self._add_i18n(ttk.Button(row, text="", command=self._browse_watch_folder), "browse_folder").pack(side=tk.LEFT)
-        row2 = ttk.Frame(f)
-        row2.pack(fill=tk.X, padx=8, pady=4)
+        f = card(p)
+        f.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(section_title(f, self._t("tab_watch")), "tab_watch").pack(anchor="w", padx=PAD, pady=(PAD_SM, 4))
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(row, text="", font=FONT_BODY), "watch_folder").pack(side=tk.LEFT)
+        ctk.CTkEntry(row, textvariable=self._watch_folder, font=FONT_BODY).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=PAD_SM
+        )
+        self._add_i18n(secondary_button(row, text="", command=self._browse_watch_folder), "browse_folder").pack(
+            side=tk.LEFT
+        )
+        row2 = ctk.CTkFrame(f, fg_color="transparent")
+        row2.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
         self._add_i18n(
-            ttk.Checkbutton(row2, text="", variable=self._watch_enabled, command=self._save_settings),
+            ctk.CTkCheckBox(row2, text="", variable=self._watch_enabled, command=self._save_settings, font=FONT_BODY),
             "watch_enable",
         ).pack(side=tk.LEFT)
-        self._add_i18n(ttk.Label(row2, text=""), "watch_interval").pack(side=tk.LEFT, padx=(16, 4))
-        ttk.Spinbox(row2, from_=2, to=120, textvariable=self._watch_interval, width=5).pack(side=tk.LEFT)
-        row3 = ttk.Frame(f)
-        row3.pack(fill=tk.X, padx=8, pady=8)
-        ttk.Button(row3, text="Start", command=self._watch_start).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(row3, text="Stop", command=self._watch_stop).pack(side=tk.LEFT)
+        self._add_i18n(ctk.CTkLabel(row2, text="", font=FONT_BODY), "watch_interval").pack(side=tk.LEFT, padx=(PAD, 4))
+        ctk.CTkEntry(row2, textvariable=self._watch_interval, width=80, font=FONT_BODY).pack(side=tk.LEFT)
+        row3 = ctk.CTkFrame(f, fg_color="transparent")
+        row3.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        secondary_button(row3, text="Start", command=self._watch_start).pack(side=tk.LEFT, padx=(0, PAD_SM))
+        secondary_button(row3, text="Stop", command=self._watch_stop).pack(side=tk.LEFT)
 
     def _build_history_tab(self) -> None:
         p = self._tab_history_body
+        hist_card = card(p)
+        hist_card.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=PAD_SM)
+        tree_wrap = ctk.CTkFrame(hist_card, corner_radius=10)
+        tree_wrap.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=PAD_SM)
         cols = ("time", "input", "output")
-        self._history_tree = ttk.Treeview(p, columns=cols, show="headings", height=16)
+        self._history_tree = ttk.Treeview(tree_wrap, columns=cols, show="headings", height=16)
         self._history_tree.heading("time", text=self._t("history_col_time"))
         self._history_tree.heading("input", text=self._t("history_col_in"))
         self._history_tree.heading("output", text=self._t("history_col_out"))
-        self._history_tree.pack(fill=tk.X, padx=8, pady=8)
+        self._history_tree.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
         self._history_tree.bind("<Double-1>", self._history_double_click)
-        hist_btns = ttk.Frame(p)
-        hist_btns.pack(pady=4)
-        self._add_i18n(ttk.Button(hist_btns, text="", command=self._history_load), "history_load").pack(
+        hist_btns = ctk.CTkFrame(p, fg_color="transparent")
+        hist_btns.pack(pady=PAD_SM)
+        self._add_i18n(secondary_button(hist_btns, text="", command=self._history_load), "history_load").pack(
             side=tk.LEFT, padx=4
         )
-        self._add_i18n(ttk.Button(hist_btns, text="", command=self._history_rerun), "history_rerun").pack(
+        self._add_i18n(secondary_button(hist_btns, text="", command=self._history_rerun), "history_rerun").pack(
             side=tk.LEFT, padx=4
         )
-        self._add_i18n(ttk.Button(hist_btns, text="", command=self._refresh_history), "refresh").pack(side=tk.LEFT, padx=4)
+        self._add_i18n(secondary_button(hist_btns, text="", command=self._refresh_history), "refresh").pack(
+            side=tk.LEFT, padx=4
+        )
         self._refresh_history()
-
     def _uses_dark_theme(self) -> bool:
         if self._follow_system_theme.get():
             return is_dark_mode()
@@ -722,7 +794,7 @@ class VideoConverterApp(_AppBase):
     def _update_dark_checkbox_state(self) -> None:
         if self._dark_theme_cb is not None:
             self._dark_theme_cb.configure(
-                state=tk.DISABLED if self._follow_system_theme.get() else tk.NORMAL
+                state="disabled" if self._follow_system_theme.get() else "normal"
             )
 
     def _schedule_theme_sync(self) -> None:
@@ -733,35 +805,28 @@ class VideoConverterApp(_AppBase):
         self.after(3000, self._schedule_theme_sync)
 
     def _apply_theme(self) -> None:
-        style = ttk.Style(self)
+        sync_appearance(
+            follow_system=self._follow_system_theme.get(),
+            dark_manual=self._dark.get(),
+        )
         dark = self._uses_dark_theme()
         self._applied_dark = dark
+        style = ttk.Style(self)
         if dark:
             bg, fg = "#1e1e1e", "#e0e0e0"
-            self.configure(bg=bg)
+            list_bg = "#2d2d2d"
             style.theme_use("clam")
-            style.configure(".", background=bg, foreground=fg, fieldbackground="#2d2d2d")
-            style.configure("TLabel", background=bg, foreground=fg)
-            style.configure("TFrame", background=bg)
-            style.configure("TLabelframe", background=bg, foreground=fg)
-            style.configure("TLabelframe.Label", background=bg, foreground=fg)
-            style.configure("Treeview", background="#2d2d2d", foreground=fg, fieldbackground="#2d2d2d")
+            style.configure("Treeview", background=list_bg, foreground=fg, fieldbackground=list_bg)
             style.configure("Treeview.Heading", background=bg, foreground=fg)
             style.map("Treeview", background=[("selected", "#404040")])
-            self._info_text.configure(bg="#2d2d2d", fg=fg, insertbackground=fg)
-            self._batch_list.configure(bg="#2d2d2d", fg=fg)
-            self._merge_listbox.configure(bg="#2d2d2d", fg=fg)
-            for canvas in self._scroll_canvases:
-                canvas.configure(bg=bg)
+            self._batch_list.configure(bg=list_bg, fg=fg, selectbackground="#404040")
+            self._merge_listbox.configure(bg=list_bg, fg=fg, selectbackground="#404040")
         else:
             style.theme_use("vista" if "vista" in style.theme_names() else "default")
             style.configure("Treeview", background="white", foreground="black", fieldbackground="white")
             style.configure("Treeview.Heading", background="SystemButtonFace", foreground="black")
-            self._info_text.configure(bg="white", fg="black", insertbackground="black")
-            self._batch_list.configure(bg="white", fg="black")
-            self._merge_listbox.configure(bg="white", fg="black")
-            for canvas in self._scroll_canvases:
-                canvas.configure(bg="SystemButtonFace")
+            self._batch_list.configure(bg="white", fg="black", selectbackground="SystemHighlight")
+            self._merge_listbox.configure(bg="white", fg="black", selectbackground="SystemHighlight")
 
     def _on_system_theme_toggle(self) -> None:
         self._update_dark_checkbox_state()
@@ -830,7 +895,7 @@ class VideoConverterApp(_AppBase):
         except ValueError:
             return None
 
-    def _set_stream_by_index(self, var: tk.StringVar, cb: ttk.Combobox, index: int | None) -> None:
+    def _set_stream_by_index(self, var: tk.StringVar, cb: ctk.CTkComboBox, index: int | None) -> None:
         if index is None:
             var.set("")
             return
@@ -868,10 +933,10 @@ class VideoConverterApp(_AppBase):
                 self._batch_add_path(Path(path))
 
     def _set_info_text(self, text: str) -> None:
-        self._info_text.configure(state=tk.NORMAL)
-        self._info_text.delete("1.0", tk.END)
-        self._info_text.insert(tk.END, text)
-        self._info_text.configure(state=tk.DISABLED)
+        self._info_text.configure(state="normal")
+        self._info_text.delete("1.0", "end")
+        self._info_text.insert("1.0", text)
+        self._info_text.configure(state="disabled")
 
     def _browse_input(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Video", "*.mov *.mp4 *.mkv *.avi *.webm"), ("All", "*.*")])
@@ -970,7 +1035,10 @@ class VideoConverterApp(_AppBase):
     def _update_preview(self, path: Path, at_sec: float) -> None:
         preview = generate_preview(path, at_sec=at_sec)
         if preview and preview.is_file():
-            self._preview_image = tk.PhotoImage(file=str(preview))
+            from PIL import Image
+
+            pil_img = Image.open(str(preview))
+            self._preview_image = ctk.CTkImage(pil_img, size=(224, 126))
             self._preview_label.configure(image=self._preview_image, text="")
 
     def _on_preview_seek(self, _value: str | None = None) -> None:
@@ -1097,8 +1165,8 @@ class VideoConverterApp(_AppBase):
             messagebox.showerror(self._t("error"), str(exc))
 
     def _set_busy(self, busy: bool) -> None:
-        self._convert_btn.configure(state=tk.DISABLED if busy else tk.NORMAL)
-        self._cancel_btn.configure(state=tk.NORMAL if busy else tk.DISABLED)
+        self._convert_btn.configure(state="disabled" if busy else "normal")
+        self._cancel_btn.configure(state="normal" if busy else "disabled")
 
     def _start_convert(self) -> None:
         if self._worker and self._worker.is_alive():
@@ -1116,7 +1184,7 @@ class VideoConverterApp(_AppBase):
             return
         self._cancel_requested = False
         self._progress_start = time.time()
-        self._progress["value"] = 0
+        self._progress.set(0)
         self._comparison.set("")
         self._set_busy(True)
         self._worker = threading.Thread(target=self._convert_worker, args=(options,), daemon=True)
@@ -1146,11 +1214,11 @@ class VideoConverterApp(_AppBase):
         self.after(0, lambda: self._apply_progress(percent, f"{message[:80]}{eta}"))
 
     def _apply_progress(self, percent: float, message: str) -> None:
-        self._progress["value"] = percent
+        animate_progress(self._progress, percent)
         self._status.set(message)
 
     def _on_convert_done(self, output_path: Path, cmd: list[str], cmp_text: str, options: ConvertOptions) -> None:
-        self._progress["value"] = 100
+        self._progress.set(1.0)
         self._status.set(f"{self._t('done')}: {output_path.name}")
         self._comparison.set(cmp_text)
         if self._show_cmd.get():
@@ -1237,7 +1305,7 @@ class VideoConverterApp(_AppBase):
 
     def _on_batch_done(self, results, base: ConvertOptions) -> None:
         self._batch_running = False
-        self._progress["value"] = 100
+        self._progress.set(1.0)
         self._status.set(f"{self._t('done')}: {len(results)} files")
         opts_dict = options_to_dict(base)
         for output_path, _ in results:
@@ -1468,8 +1536,8 @@ class VideoConverterApp(_AppBase):
             return
 
         self._update_in_progress = True
-        self._convert_btn.configure(state=tk.DISABLED)
-        self._progress["value"] = 0
+        self._convert_btn.configure(state="disabled")
+        self._progress.set(0)
 
         def worker() -> None:
             try:
@@ -1478,7 +1546,7 @@ class VideoConverterApp(_AppBase):
                     self.after(
                         0,
                         lambda p=pct: (
-                            self._progress.configure(value=p),
+                            self._progress.set(p / 100.0),
                             self._status.set(self._t("update_downloading").format(pct=p)),
                         ),
                     )
@@ -1493,14 +1561,14 @@ class VideoConverterApp(_AppBase):
 
     def _finish_update_install(self) -> None:
         self._status.set(self._t("update_installing"))
-        self._progress["value"] = 100
+        self._progress.set(1.0)
         self.update_idletasks()
         self.after(300, self.destroy)
 
     def _fail_update_install(self, message: str) -> None:
         self._update_in_progress = False
-        self._convert_btn.configure(state=tk.NORMAL)
-        self._progress["value"] = 0
+        self._convert_btn.configure(state="normal")
+        self._progress.set(0)
         self._status.set(self._t("ready"))
         messagebox.showerror(self._t("error"), message)
 
@@ -1529,6 +1597,22 @@ class VideoConverterApp(_AppBase):
         self._preview_stop()
         self._save_settings()
         self.destroy()
+
+
+try:
+    from tkinterdnd2 import TkinterDnD
+
+    class VideoConverterApp(_VideoConverterMixin, ctk.CTk, TkinterDnD.Tk):
+        def __init__(self) -> None:
+            super().__init__()
+            self.TkdndVersion = TkinterDnD._require(self)
+            self._init_app()
+except ImportError:
+
+    class VideoConverterApp(_VideoConverterMixin, ctk.CTk):
+        def __init__(self) -> None:
+            super().__init__()
+            self._init_app()
 
 
 def main() -> int:

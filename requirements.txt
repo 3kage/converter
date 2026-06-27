@@ -2,6 +2,7 @@
 # Потрібні зовнішні утиліти: ffmpeg та ffprobe (частина пакета FFmpeg).
 #
 # GUI (Python):
+#   pip install -e ".[gui]"   або: pip install customtkinter tkinterdnd2
 #   Windows: python video_converter_gui.py
 #   macOS:   ./run_gui.sh
 #

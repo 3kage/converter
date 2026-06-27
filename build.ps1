@@ -27,6 +27,9 @@ Write-Host "Copying FFmpeg binaries..."
 Copy-Item $ffmpegPath (Join-Path $ffmpegDir "ffmpeg.exe") -Force
 Copy-Item $ffprobePath (Join-Path $ffmpegDir "ffprobe.exe") -Force
 
+Write-Host "Running GUI smoke test..."
+python -m converter.gui_smoke
+
 Write-Host "Building executable with PyInstaller..."
 python -m PyInstaller VideoConverter.spec --noconfirm --clean
 

@@ -157,6 +157,7 @@ def _quote(value: Path) -> str:
 def _launch_windows_updater(source: Path, install_root: Path, executable: Path) -> None:
     script_dir = Path(tempfile.gettempdir()) / "VideoConverter-update"
     script_dir.mkdir(parents=True, exist_ok=True)
+    backup_root = install_root.parent / "VideoConverter_previous"
     script_path = script_dir / "apply_update.bat"
     script_path.write_text(
         "\n".join(
@@ -164,6 +165,8 @@ def _launch_windows_updater(source: Path, install_root: Path, executable: Path) 
                 "@echo off",
                 "setlocal EnableExtensions",
                 "ping 127.0.0.1 -n 3 >nul",
+                f'if exist {_quote(backup_root)} rmdir /s /q {_quote(backup_root)}',
+                f'robocopy {_quote(install_root)} {_quote(backup_root)} /MIR /R:3 /W:2 /NFL /NDL /NJH /NJS /NP',
                 f'robocopy {_quote(source)} {_quote(install_root)} /MIR /R:5 /W:2 /NFL /NDL /NJH /NJS /NP',
                 "if %ERRORLEVEL% GEQ 8 exit /b 1",
                 f'start "" {_quote(executable)}',
@@ -182,6 +185,7 @@ def _launch_windows_updater(source: Path, install_root: Path, executable: Path) 
 def _launch_macos_updater(source: Path, install_root: Path) -> None:
     script_dir = Path(tempfile.gettempdir()) / "VideoConverter-update"
     script_dir.mkdir(parents=True, exist_ok=True)
+    backup_root = install_root.parent / "VideoConverter_previous"
     script_path = script_dir / "apply_update.command"
     script_path.write_text(
         "\n".join(
@@ -189,6 +193,8 @@ def _launch_macos_updater(source: Path, install_root: Path) -> None:
                 "#!/bin/bash",
                 "set -e",
                 "sleep 2",
+                f"rm -rf {_quote(backup_root)}",
+                f"ditto {_quote(install_root)} {_quote(backup_root)}",
                 f"ditto {_quote(source)} {_quote(install_root)}",
                 f"xattr -cr {_quote(install_root)}",
                 f"open {_quote(install_root)}",

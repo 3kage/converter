@@ -38,6 +38,7 @@ a = Analysis(
         'converter.background',
         'converter.system_theme',
         'converter.ui_premium',
+        'converter.recovery',
         'customtkinter',
         'tkinterdnd2',
     ],

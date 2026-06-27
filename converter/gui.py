@@ -27,7 +27,7 @@ from .preview import generate_preview
 from .probe import analyze_file, render_media_info
 from .streams import list_selectable_streams
 from .system_theme import is_dark_mode
-from .watch_folder import FolderWatcher
+from .recovery import handle_startup_failure, mark_startup_ok
 from .ui_premium import (
     FONT_BODY,
     FONT_MONO,
@@ -190,6 +190,7 @@ class _VideoConverterMixin:
         self.after(100, self._check_ffmpeg)
         self.after(1500, self._startup_update_check)
         bind_file_drop(self, self._on_drop)
+        mark_startup_ok()
 
     def _t(self, key: str) -> str:
         return self.i18n.t(key)
@@ -1788,6 +1789,13 @@ def main() -> int:
         app = VideoConverterApp()
     except tk.TclError as exc:
         print(f"GUI error: {exc}", file=__import__("sys").stderr)
+        if handle_startup_failure(exc):
+            return 0
+        return 1
+    except Exception as exc:
+        print(f"GUI error: {exc}", file=__import__("sys").stderr)
+        if handle_startup_failure(exc):
+            return 0
         return 1
     app.mainloop()
     return 0

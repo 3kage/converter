@@ -188,16 +188,18 @@ def nav_divider(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
 
 
 def nav_button_compact(parent: ctk.CTkBaseClass, *, icon: str, command, **kwargs) -> ctk.CTkButton:
+    width = kwargs.pop("width", NAV_BTN)
+    height = kwargs.pop("height", NAV_BTN)
     btn = ctk.CTkButton(
         parent,
         text=icon,
-        width=NAV_BTN,
-        height=NAV_BTN,
-        corner_radius=CORNER_RADIUS_SM,
-        font=("Segoe UI", 16),
-        fg_color=_NAV_IDLE_FG,
-        text_color=_NAV_IDLE_TEXT,
-        hover_color=_NAV_IDLE_HOVER,
+        width=width,
+        height=height,
+        corner_radius=kwargs.pop("corner_radius", CORNER_RADIUS_SM),
+        font=kwargs.pop("font", ("Segoe UI", 16)),
+        fg_color=kwargs.pop("fg_color", _NAV_IDLE_FG),
+        text_color=kwargs.pop("text_color", _NAV_IDLE_TEXT),
+        hover_color=kwargs.pop("hover_color", _NAV_IDLE_HOVER),
         command=command,
         **kwargs,
     )
@@ -251,16 +253,17 @@ def update_tooltip(widget: tk.Misc, text: str) -> None:
 
 
 def nav_button(parent: ctk.CTkBaseClass, *, icon: str, text: str, command, **kwargs) -> ctk.CTkButton:
+    height = kwargs.pop("height", 44)
     btn = ctk.CTkButton(
         parent,
         text=f" {icon}   {text}",
-        anchor="w",
-        height=44,
-        corner_radius=CORNER_RADIUS_SM,
-        font=FONT_NAV,
-        fg_color=_NAV_IDLE_FG,
-        text_color=_NAV_IDLE_TEXT,
-        hover_color=_NAV_IDLE_HOVER,
+        anchor=kwargs.pop("anchor", "w"),
+        height=height,
+        corner_radius=kwargs.pop("corner_radius", CORNER_RADIUS_SM),
+        font=kwargs.pop("font", FONT_NAV),
+        fg_color=kwargs.pop("fg_color", _NAV_IDLE_FG),
+        text_color=kwargs.pop("text_color", _NAV_IDLE_TEXT),
+        hover_color=kwargs.pop("hover_color", _NAV_IDLE_HOVER),
         command=command,
         **kwargs,
     )
@@ -365,29 +368,31 @@ def brand_mark(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
 
 
 def primary_button(parent: ctk.CTkBaseClass, **kwargs) -> ctk.CTkButton:
+    height = kwargs.pop("height", 40)
     return ctk.CTkButton(
         parent,
-        corner_radius=CORNER_RADIUS_SM,
-        height=40,
-        font=FONT_BODY,
-        border_width=1,
-        border_color=_NEON_BORDER,
+        corner_radius=kwargs.pop("corner_radius", CORNER_RADIUS_SM),
+        height=height,
+        font=kwargs.pop("font", FONT_BODY),
+        border_width=kwargs.pop("border_width", 1),
+        border_color=kwargs.pop("border_color", _NEON_BORDER),
         **kwargs,
     )
 
 
 def secondary_button(parent: ctk.CTkBaseClass, **kwargs) -> ctk.CTkButton:
+    height = kwargs.pop("height", 38)
     return ctk.CTkButton(
         parent,
-        corner_radius=CORNER_RADIUS_SM,
-        height=38,
-        font=FONT_BODY,
-        fg_color="transparent",
-        border_width=2,
-        text_color=_BTN_OUTLINE_TEXT,
-        border_color=_BTN_OUTLINE_BORDER,
-        hover_color=_BTN_OUTLINE_HOVER,
-        text_color_disabled=_BTN_OUTLINE_TEXT_DISABLED,
+        corner_radius=kwargs.pop("corner_radius", CORNER_RADIUS_SM),
+        height=height,
+        font=kwargs.pop("font", FONT_BODY),
+        fg_color=kwargs.pop("fg_color", "transparent"),
+        border_width=kwargs.pop("border_width", 2),
+        text_color=kwargs.pop("text_color", _BTN_OUTLINE_TEXT),
+        border_color=kwargs.pop("border_color", _BTN_OUTLINE_BORDER),
+        hover_color=kwargs.pop("hover_color", _BTN_OUTLINE_HOVER),
+        text_color_disabled=kwargs.pop("text_color_disabled", _BTN_OUTLINE_TEXT_DISABLED),
         **kwargs,
     )
 

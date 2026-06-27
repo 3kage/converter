@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video-converter"
-version = "2.3.3"
+version = "2.3.4"
 description = "Аналіз та конвертація відеофайлів через FFmpeg"
 readme = "requirements.txt"
 requires-python = ">=3.10"

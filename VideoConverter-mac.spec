@@ -32,6 +32,7 @@ a = Analysis(
         'converter.file_scan',
         'converter.watch_folder',
         'converter.background',
+        'converter.system_theme',
         'tkinterdnd2',
     ],
     hookspath=[],

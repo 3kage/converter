@@ -35,6 +35,7 @@ def pending_batch_path() -> Path:
 class AppSettings:
     lang: str = "uk"
     dark: bool = False
+    follow_system_theme: bool = True
     check_updates_on_startup: bool = True
     notify_on_complete: bool = True
     recursive_batch: bool = True
@@ -58,7 +59,11 @@ def load_settings() -> AppSettings:
         return AppSettings()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return AppSettings(**{k: v for k, v in data.items() if k in AppSettings.__dataclass_fields__})
+        fields = AppSettings.__dataclass_fields__
+        kwargs = {k: v for k, v in data.items() if k in fields}
+        if "follow_system_theme" not in data and data.get("dark") is not None:
+            kwargs["follow_system_theme"] = False
+        return AppSettings(**kwargs)
     except (json.JSONDecodeError, OSError, TypeError):
         return AppSettings()
 

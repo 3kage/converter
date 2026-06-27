@@ -24,6 +24,7 @@ from .settings import AppSettings, add_custom_preset, load_settings, save_settin
 from .preview import generate_preview
 from .probe import analyze_file, render_media_info
 from .streams import list_selectable_streams
+from .system_theme import is_dark_mode
 from .watch_folder import FolderWatcher
 from .updater import (
     can_auto_update,
@@ -58,7 +59,10 @@ class VideoConverterApp(_AppBase):
         self._help_menu: tk.Menu | None = None
         self._menu: tk.Menu | None = None
 
+        self._follow_system_theme = tk.BooleanVar(value=settings.follow_system_theme)
         self._dark = tk.BooleanVar(value=settings.dark)
+        self._applied_dark: bool | None = None
+        self._dark_theme_cb: ttk.Checkbutton | None = None
         self._lang = tk.StringVar(value=settings.lang)
         self._input_path = tk.StringVar()
         self._output_path = tk.StringVar()
@@ -138,7 +142,9 @@ class VideoConverterApp(_AppBase):
 
         self._build_ui()
         self.i18n.set_lang(settings.lang)
+        self._update_dark_checkbox_state()
         self._apply_theme()
+        self._schedule_theme_sync()
         if settings.watch_enabled and settings.watch_folder:
             self.after(500, self._watch_start)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -183,9 +189,14 @@ class VideoConverterApp(_AppBase):
         top = ttk.Frame(self)
         top.pack(fill=tk.X, **pad)
         self._add_i18n(
+            ttk.Checkbutton(top, text="", variable=self._follow_system_theme, command=self._on_system_theme_toggle),
+            "system_theme",
+        ).pack(side=tk.LEFT)
+        self._dark_theme_cb = self._add_i18n(
             ttk.Checkbutton(top, text="", variable=self._dark, command=self._on_dark_toggle),
             "dark_theme",
-        ).pack(side=tk.LEFT)
+        )
+        self._dark_theme_cb.pack(side=tk.LEFT, padx=(8, 0))
         self._add_i18n(ttk.Label(top, text=""), "language").pack(side=tk.LEFT, padx=(16, 4))
         lang_cb = ttk.Combobox(top, textvariable=self._lang, values=["uk", "en"], width=5, state="readonly")
         lang_cb.pack(side=tk.LEFT)
@@ -703,9 +714,29 @@ class VideoConverterApp(_AppBase):
         self._add_i18n(ttk.Button(hist_btns, text="", command=self._refresh_history), "refresh").pack(side=tk.LEFT, padx=4)
         self._refresh_history()
 
+    def _uses_dark_theme(self) -> bool:
+        if self._follow_system_theme.get():
+            return is_dark_mode()
+        return self._dark.get()
+
+    def _update_dark_checkbox_state(self) -> None:
+        if self._dark_theme_cb is not None:
+            self._dark_theme_cb.configure(
+                state=tk.DISABLED if self._follow_system_theme.get() else tk.NORMAL
+            )
+
+    def _schedule_theme_sync(self) -> None:
+        if self._follow_system_theme.get():
+            dark = is_dark_mode()
+            if dark != self._applied_dark:
+                self._apply_theme()
+        self.after(3000, self._schedule_theme_sync)
+
     def _apply_theme(self) -> None:
         style = ttk.Style(self)
-        if self._dark.get():
+        dark = self._uses_dark_theme()
+        self._applied_dark = dark
+        if dark:
             bg, fg = "#1e1e1e", "#e0e0e0"
             self.configure(bg=bg)
             style.theme_use("clam")
@@ -732,6 +763,11 @@ class VideoConverterApp(_AppBase):
             for canvas in self._scroll_canvases:
                 canvas.configure(bg="SystemButtonFace")
 
+    def _on_system_theme_toggle(self) -> None:
+        self._update_dark_checkbox_state()
+        self._apply_theme()
+        self._save_settings()
+
     def _on_dark_toggle(self) -> None:
         self._apply_theme()
         self._save_settings()
@@ -741,6 +777,7 @@ class VideoConverterApp(_AppBase):
             AppSettings(
                 lang=self._lang.get(),
                 dark=self._dark.get(),
+                follow_system_theme=self._follow_system_theme.get(),
                 check_updates_on_startup=self._check_updates_on_startup.get(),
                 notify_on_complete=self._notify_on_complete.get(),
                 recursive_batch=self._recursive_batch.get(),

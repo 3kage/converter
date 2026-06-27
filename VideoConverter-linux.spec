@@ -13,7 +13,7 @@ a = Analysis(
         'converter.i18n', 'converter.history', 'converter.hardware', 'converter.preview',
         'converter.compare', 'converter.updater', 'converter.dnd', 'converter.filters',
         'converter.streams', 'converter.settings', 'converter.options_io', 'converter.notifications',
-        'converter.file_scan', 'converter.watch_folder', 'converter.background', 'tkinterdnd2',
+        'converter.file_scan', 'converter.watch_folder', 'converter.background', 'converter.system_theme', 'tkinterdnd2',
     ],
     hookspath=[],
     hooksconfig={},

@@ -19,21 +19,21 @@ def _theme_json_path() -> Path:
 
 
 THEME_JSON = _theme_json_path()
-CORNER_RADIUS = 16
-CORNER_RADIUS_SM = 12
-CORNER_RADIUS_LG = 20
-PAD = 14
-PAD_SM = 8
-PAD_LG = 18
+CORNER_RADIUS = 12
+CORNER_RADIUS_SM = 8
+CORNER_RADIUS_LG = 16
+PAD = 10
+PAD_SM = 5
+PAD_LG = 12
 NAV_WIDTH = 68
-NAV_BTN = 44
+NAV_BTN = 40
 
 FONT_BODY = ("Segoe UI", 13)
 FONT_SMALL = ("Segoe UI", 11)
 FONT_CAPTION = ("Segoe UI", 10)
-FONT_TITLE = ("Segoe UI", 15, "bold")
-FONT_HERO = ("Segoe UI", 20, "bold")
-FONT_SUBTITLE = ("Segoe UI", 12)
+FONT_TITLE = ("Segoe UI", 14, "bold")
+FONT_HERO = ("Segoe UI", 17, "bold")
+FONT_SUBTITLE = ("Segoe UI", 11)
 FONT_NAV = ("Segoe UI", 12)
 FONT_MONO = ("Consolas", 11)
 
@@ -166,7 +166,7 @@ def data_table_shell(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
     return ctk.CTkFrame(
         parent,
         corner_radius=CORNER_RADIUS_SM,
-        border_width=2,
+        border_width=1,
         border_color=_NEON_BORDER,
         fg_color=_TABLE_SHELL,
     )
@@ -296,10 +296,15 @@ def card(parent: ctk.CTkBaseClass, *, border: bool = True, fg_color=_SURFACE) ->
     return ctk.CTkFrame(
         parent,
         corner_radius=CORNER_RADIUS,
-        border_width=2 if border else 0,
+        border_width=1 if border else 0,
         border_color=_NEON_BORDER if border else _SURFACE,
         fg_color=fg_color,
     )
+
+
+def panel(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
+    """Inner block without heavy outer chrome."""
+    return ctk.CTkFrame(parent, corner_radius=CORNER_RADIUS_SM, fg_color=_SURFACE_ALT, border_width=0)
 
 
 def sidebar_panel(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
@@ -307,7 +312,7 @@ def sidebar_panel(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
         parent,
         width=NAV_WIDTH,
         corner_radius=CORNER_RADIUS,
-        border_width=2,
+        border_width=1,
         border_color=_NEON_BORDER,
         fg_color=_SIDEBAR,
     )
@@ -317,12 +322,16 @@ def section_title(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
     return ctk.CTkLabel(parent, text=text, font=FONT_TITLE, anchor="w", text_color=_ACCENT)
 
 
+def section_caption(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
+    return ctk.CTkLabel(parent, text=text, font=FONT_SMALL, text_color=_MUTED, anchor="w")
+
+
 def page_title(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
-    return ctk.CTkLabel(parent, text=text, font=FONT_HERO, anchor="w")
+    return ctk.CTkLabel(parent, text=text, font=FONT_TITLE, anchor="w", text_color=_ACCENT)
 
 
 def page_subtitle(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
-    return ctk.CTkLabel(parent, text=text, font=FONT_SUBTITLE, text_color=_MUTED, anchor="w")
+    return ctk.CTkLabel(parent, text=f"· {text}", font=FONT_SUBTITLE, text_color=_MUTED, anchor="w")
 
 
 def badge(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
@@ -341,14 +350,14 @@ def badge(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
 def brand_mark(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
     outer = ctk.CTkFrame(
         parent,
-        width=52,
-        height=52,
-        corner_radius=26,
+        width=40,
+        height=40,
+        corner_radius=20,
         fg_color=_ACCENT,
-        border_width=2,
+        border_width=1,
         border_color=_ACCENT_GLOW,
     )
-    ctk.CTkLabel(outer, text="▶", font=("Segoe UI", 22), text_color="#001018").place(
+    ctk.CTkLabel(outer, text="▶", font=("Segoe UI", 18), text_color="#001018").place(
         relx=0.5, rely=0.5, anchor="center"
     )
     outer.pack_propagate(False)

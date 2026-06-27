@@ -53,8 +53,10 @@ from .ui_premium import (
     nav_text,
     page_subtitle,
     page_title,
+    panel,
     primary_button,
     secondary_button,
+    section_caption,
     section_title,
     set_nav_active,
     sidebar_panel,
@@ -76,8 +78,8 @@ class _VideoConverterMixin:
         self.i18n = I18n(settings.lang)
         init_premium_theme(follow_system=settings.follow_system_theme, dark_manual=settings.dark)
         self.title(f"{self.i18n.t('app_title')} v{__version__}")
-        self.geometry("1120x900")
-        self.minsize(880, 540)
+        self.geometry("1060x760")
+        self.minsize(820, 520)
 
         self._i18n_widgets: list[tuple[object, str, str]] = []
         self._tab_keys = [
@@ -228,7 +230,19 @@ class _VideoConverterMixin:
         if hasattr(self, "_page_title"):
             self._page_title.configure(text=self._t(self._current_tab_key))
         if hasattr(self, "_page_subtitle"):
-            self._page_subtitle.configure(text=self._t(f"{self._current_tab_key}_desc"))
+            self._page_subtitle.configure(text=f"· {self._t(f'{self._current_tab_key}_desc')}")
+
+    def _sync_dock_extras(self) -> None:
+        if not hasattr(self, "_cmd_label"):
+            return
+        if self._cmd_text.get().strip():
+            self._cmd_label.pack(fill=tk.X, pady=(PAD_SM, 0))
+        else:
+            self._cmd_label.pack_forget()
+        if self._comparison.get().strip():
+            self._comparison_label.pack(fill=tk.X)
+        else:
+            self._comparison_label.pack_forget()
 
     def _on_tab_selected(self, key: str) -> None:
         self._show_tab(key)
@@ -337,9 +351,9 @@ class _VideoConverterMixin:
         self._build_menu()
 
         header = card(self)
-        header.pack(fill=tk.X, padx=PAD, pady=(PAD, PAD_SM))
+        header.pack(fill=tk.X, padx=PAD, pady=(PAD_SM, PAD_SM))
         header_row = ctk.CTkFrame(header, fg_color="transparent")
-        header_row.pack(fill=tk.X, padx=PAD_LG, pady=PAD)
+        header_row.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
         brand_mark(header_row).pack(side=tk.LEFT)
         title_col = ctk.CTkFrame(header_row, fg_color="transparent")
         title_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(PAD, 0))
@@ -348,7 +362,7 @@ class _VideoConverterMixin:
         title_lbl = self._add_i18n(page_title(title_row, self._t("app_title")), "app_title")
         title_lbl.pack(side=tk.LEFT)
         badge(title_row, text=f"v{__version__}").pack(side=tk.LEFT, padx=(PAD_SM, 0))
-        self._add_i18n(page_subtitle(title_col, self._t("app_tagline")), "app_tagline").pack(anchor="w", pady=(2, 0))
+        self._add_i18n(page_subtitle(title_col, self._t("app_tagline")), "app_tagline").pack(anchor="w")
 
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=PAD_SM)
@@ -390,10 +404,12 @@ class _VideoConverterMixin:
 
         page_head = ctk.CTkFrame(content, fg_color="transparent")
         page_head.pack(fill=tk.X, padx=PAD_SM, pady=(0, PAD_SM))
-        self._page_title = page_title(page_head, self._t(self._current_tab_key))
-        self._page_title.pack(anchor="w")
-        self._page_subtitle = page_subtitle(page_head, self._t(f"{self._current_tab_key}_desc"))
-        self._page_subtitle.pack(anchor="w", pady=(2, 0))
+        head_row = ctk.CTkFrame(page_head, fg_color="transparent")
+        head_row.pack(anchor="w", fill=tk.X)
+        self._page_title = page_title(head_row, self._t(self._current_tab_key))
+        self._page_title.pack(side=tk.LEFT)
+        self._page_subtitle = page_subtitle(head_row, self._t(f"{self._current_tab_key}_desc"))
+        self._page_subtitle.pack(side=tk.LEFT, padx=(PAD_SM, 0))
 
         self._tab_stack = ctk.CTkFrame(content, fg_color="transparent")
         self._tab_stack.pack(fill=tk.BOTH, expand=True)
@@ -423,15 +439,38 @@ class _VideoConverterMixin:
         self._show_tab(self._current_tab_key)
 
         dock = card(self)
-        dock.pack(fill=tk.X, padx=PAD, pady=(0, PAD))
+        dock.pack(fill=tk.X, padx=PAD, pady=(0, PAD_SM))
         dock_inner = ctk.CTkFrame(dock, fg_color="transparent")
-        dock_inner.pack(fill=tk.X, padx=PAD_LG, pady=PAD)
-        self._progress = ctk.CTkProgressBar(dock_inner, height=10)
+        dock_inner.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        self._progress = ctk.CTkProgressBar(dock_inner, height=8)
         self._progress.pack(fill=tk.X)
         self._progress.set(0)
-        ctk.CTkLabel(dock_inner, textvariable=self._status, font=FONT_BODY, anchor="w").pack(
-            fill=tk.X, pady=(PAD_SM, 0)
+
+        dock_actions = ctk.CTkFrame(dock_inner, fg_color="transparent")
+        dock_actions.pack(fill=tk.X, pady=(PAD_SM, 0))
+        ctk.CTkLabel(dock_actions, textvariable=self._status, font=FONT_SMALL, anchor="w").pack(
+            side=tk.LEFT, fill=tk.X, expand=True
         )
+        btns = ctk.CTkFrame(dock_actions, fg_color="transparent")
+        btns.pack(side=tk.RIGHT)
+        self._convert_btn = self._add_i18n(
+            primary_button(btns, text="", command=self._start_convert, width=140, height=34),
+            "convert",
+        )
+        self._convert_btn.pack(side=tk.LEFT)
+        self._add_i18n(secondary_button(btns, text="", command=self._dry_run, height=32), "dry_run").pack(
+            side=tk.LEFT, padx=(PAD_SM, 0)
+        )
+        self._cancel_btn = self._add_i18n(
+            secondary_button(btns, text="", command=self._cancel_convert, state="disabled", height=32),
+            "cancel",
+        )
+        self._cancel_btn.pack(side=tk.LEFT, padx=(PAD_SM, 0))
+        self._add_i18n(
+            secondary_button(btns, text="", command=self._open_output_folder, height=32),
+            "open_folder",
+        ).pack(side=tk.LEFT, padx=(PAD_SM, 0))
+
         self._cmd_label = ctk.CTkLabel(
             dock_inner,
             textvariable=self._cmd_text,
@@ -440,34 +479,17 @@ class _VideoConverterMixin:
             wraplength=980,
             justify="left",
         )
-        self._cmd_label.pack(fill=tk.X)
-        ctk.CTkLabel(
+        self._comparison_label = ctk.CTkLabel(
             dock_inner,
             textvariable=self._comparison,
-            font=FONT_BODY,
+            font=FONT_SMALL,
             anchor="w",
             wraplength=980,
             justify="left",
-        ).pack(fill=tk.X)
-
-        btns = ctk.CTkFrame(dock_inner, fg_color="transparent")
-        btns.pack(fill=tk.X, pady=(PAD, 0))
-        self._convert_btn = self._add_i18n(
-            primary_button(btns, text="", command=self._start_convert, width=160),
-            "convert",
         )
-        self._convert_btn.pack(side=tk.LEFT)
-        self._add_i18n(secondary_button(btns, text="", command=self._dry_run), "dry_run").pack(
-            side=tk.LEFT, padx=(PAD_SM, 0)
-        )
-        self._cancel_btn = self._add_i18n(
-            secondary_button(btns, text="", command=self._cancel_convert, state="disabled"),
-            "cancel",
-        )
-        self._cancel_btn.pack(side=tk.LEFT, padx=(PAD_SM, 0))
-        self._add_i18n(secondary_button(btns, text="", command=self._open_output_folder), "open_folder").pack(
-            side=tk.RIGHT
-        )
+        self._cmd_text.trace_add("write", lambda *_: self._sync_dock_extras())
+        self._comparison.trace_add("write", lambda *_: self._sync_dock_extras())
+        self._sync_dock_extras()
 
     def _build_menu(self) -> None:
         menu = tk.Menu(self)
@@ -483,36 +505,43 @@ class _VideoConverterMixin:
     def _build_convert_tab(self) -> None:
         p = self._tab_convert_body
         inp = card(p)
-        inp.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
-        self._add_i18n(section_title(inp, self._t("input_file")), "input_file").pack(
-            anchor="w", padx=PAD, pady=(PAD_SM, 4)
-        )
+        inp.pack(fill=tk.X, padx=PAD_SM, pady=PAD_SM)
         row = ctk.CTkFrame(inp, fg_color="transparent")
-        row.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
-        ctk.CTkEntry(row, textvariable=self._input_path, font=FONT_BODY).pack(
-            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, PAD_SM)
-        )
-        self._add_i18n(secondary_button(row, text="", command=self._browse_input), "browse").pack(side=tk.LEFT)
-        self._add_i18n(secondary_button(row, text="", command=self._analyze), "analyze").pack(
+        row.pack(fill=tk.X, padx=PAD_SM, pady=PAD_SM)
+        self._add_i18n(section_title(row, self._t("input_file")), "input_file").pack(side=tk.LEFT)
+        self._add_i18n(section_caption(row, self._t("drop_hint")), "drop_hint").pack(
             side=tk.LEFT, padx=(PAD_SM, 0)
         )
-        drop_lbl = ctk.CTkLabel(inp, text=self._t("drop_hint"), font=FONT_BODY, text_color="gray")
-        drop_lbl.pack(anchor="w", padx=PAD, pady=(0, PAD_SM))
-        self._add_i18n(drop_lbl, "drop_hint")
-
-        body = ctk.CTkFrame(p, fg_color="transparent")
-        body.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
-        prev_frame = card(body)
-        prev_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, PAD_SM))
-        self._add_i18n(section_title(prev_frame, self._t("preview")), "preview").pack(
-            anchor="w", padx=PAD, pady=(PAD_SM, 4)
+        path_row = ctk.CTkFrame(inp, fg_color="transparent")
+        path_row.pack(fill=tk.X, padx=PAD_SM, pady=(0, PAD_SM))
+        ctk.CTkEntry(path_row, textvariable=self._input_path, font=FONT_BODY, height=32).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, PAD_SM)
         )
-        self._preview_label = ctk.CTkLabel(prev_frame, text="—", width=224, height=126, font=FONT_BODY)
-        self._preview_label.pack(padx=PAD, pady=(0, PAD_SM))
-        preview_ctrl = ctk.CTkFrame(prev_frame, fg_color="transparent")
-        preview_ctrl.pack(fill=tk.X, padx=PAD, pady=(0, PAD_SM))
+        self._add_i18n(secondary_button(path_row, text="", command=self._browse_input, height=32), "browse").pack(
+            side=tk.LEFT
+        )
+        self._add_i18n(secondary_button(path_row, text="", command=self._analyze, height=32), "analyze").pack(
+            side=tk.LEFT, padx=(PAD_SM, 0)
+        )
+
+        mid = card(p)
+        mid.pack(fill=tk.BOTH, expand=True, padx=PAD_SM, pady=PAD_SM)
+        body = ctk.CTkFrame(mid, fg_color="transparent")
+        body.pack(fill=tk.BOTH, expand=True, padx=PAD_SM, pady=PAD_SM)
+        body.columnconfigure(1, weight=1)
+        body.rowconfigure(0, weight=1)
+
+        prev_col = panel(body)
+        prev_col.grid(row=0, column=0, sticky="nsew", padx=(0, PAD_SM))
+        self._add_i18n(section_title(prev_col, self._t("preview")), "preview").pack(
+            anchor="w", padx=PAD_SM, pady=(PAD_SM, 2)
+        )
+        self._preview_label = ctk.CTkLabel(prev_col, text="—", width=196, height=110, font=FONT_BODY)
+        self._preview_label.pack(padx=PAD_SM, pady=(0, PAD_SM))
+        preview_ctrl = ctk.CTkFrame(prev_col, fg_color="transparent")
+        preview_ctrl.pack(fill=tk.X, padx=PAD_SM, pady=(0, PAD_SM))
         self._add_i18n(
-            ctk.CTkLabel(preview_ctrl, text="", font=FONT_BODY, anchor="w"), "preview_position"
+            ctk.CTkLabel(preview_ctrl, text="", font=FONT_SMALL, anchor="w"), "preview_position"
         ).pack(fill=tk.X)
         ctk.CTkSlider(
             preview_ctrl,
@@ -520,32 +549,33 @@ class _VideoConverterMixin:
             to=100,
             variable=self._preview_pct,
             command=self._on_preview_seek,
-        ).pack(fill=tk.X, pady=(PAD_SM, 0))
+            height=14,
+        ).pack(fill=tk.X, pady=(2, 0))
         preview_btns = ctk.CTkFrame(preview_ctrl, fg_color="transparent")
         preview_btns.pack(fill=tk.X, pady=(PAD_SM, 0))
-        self._add_i18n(secondary_button(preview_btns, text="", command=self._preview_play), "preview_play").pack(
-            side=tk.LEFT, padx=(0, PAD_SM)
-        )
-        self._add_i18n(secondary_button(preview_btns, text="", command=self._preview_stop), "preview_stop").pack(
-            side=tk.LEFT
-        )
+        self._add_i18n(
+            secondary_button(preview_btns, text="", command=self._preview_play, height=30), "preview_play"
+        ).pack(side=tk.LEFT, padx=(0, PAD_SM))
+        self._add_i18n(
+            secondary_button(preview_btns, text="", command=self._preview_stop, height=30), "preview_stop"
+        ).pack(side=tk.LEFT)
 
-        info_frame = card(body)
-        info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._add_i18n(section_title(info_frame, self._t("file_info")), "file_info").pack(
-            anchor="w", padx=PAD, pady=(PAD_SM, 4)
+        info_col = panel(body)
+        info_col.grid(row=0, column=1, sticky="nsew")
+        self._add_i18n(section_title(info_col, self._t("file_info")), "file_info").pack(
+            anchor="w", padx=PAD_SM, pady=(PAD_SM, 2)
         )
-        self._info_text = ctk.CTkTextbox(info_frame, height=220, font=FONT_MONO, wrap="word")
-        self._info_text.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=(0, PAD_SM))
+        self._info_text = ctk.CTkTextbox(info_col, height=160, font=FONT_MONO, wrap="word")
+        self._info_text.pack(fill=tk.BOTH, expand=True, padx=PAD_SM, pady=(0, PAD_SM))
         self._info_text.configure(state="disabled")
 
         settings = card(p)
-        settings.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        settings.pack(fill=tk.X, padx=PAD_SM, pady=(0, PAD_SM))
         self._add_i18n(section_title(settings, self._t("settings")), "settings").pack(
-            anchor="w", padx=PAD, pady=(PAD_SM, 4)
+            anchor="w", padx=PAD_SM, pady=(PAD_SM, 2)
         )
         g = ctk.CTkFrame(settings, fg_color="transparent")
-        g.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+        g.pack(fill=tk.X, padx=PAD_SM, pady=PAD_SM)
         self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "format").grid(row=0, column=0, sticky=tk.W, padx=(0, PAD_SM))
         ctk.CTkComboBox(
             g, values=list_supported_formats(), variable=self._format, width=100, state="readonly", font=FONT_BODY

@@ -36,10 +36,15 @@ from .ui_premium import (
     PAD_LG,
     PAD_SM,
     TAB_ICONS,
+    TREE_STYLE,
     animate_progress,
+    apply_data_widgets_theme,
     badge,
     brand_mark,
     card,
+    configure_listbox,
+    configure_tree_stripes,
+    data_table_shell,
     init_premium_theme,
     nav_button,
     nav_label,
@@ -70,7 +75,7 @@ class _VideoConverterMixin:
         init_premium_theme(follow_system=settings.follow_system_theme, dark_manual=settings.dark)
         self.title(f"{self.i18n.t('app_title')} v{__version__}")
         self.geometry("1120x900")
-        self.minsize(880, 560)
+        self.minsize(880, 540)
 
         self._i18n_widgets: list[tuple[object, str, str]] = []
         self._tab_keys = [
@@ -257,20 +262,23 @@ class _VideoConverterMixin:
         main.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=PAD_SM)
 
         sidebar = sidebar_panel(main)
-        sidebar.pack(side=tk.LEFT, fill=tk.Y, padx=(0, PAD_SM))
+        sidebar.pack(side=tk.LEFT, fill=tk.BOTH, padx=(0, PAD_SM))
         sidebar.pack_propagate(False)
+
+        sidebar_scroll = ctk.CTkScrollableFrame(sidebar, fg_color="transparent")
+        sidebar_scroll.pack(fill=tk.BOTH, expand=True, padx=PAD_SM, pady=PAD_SM)
 
         nav_groups: list[tuple[str, list[str]]] = [
             ("nav_workflow", ["tab_convert", "tab_audio", "tab_trim", "tab_advanced"]),
             ("nav_automation", ["tab_batch", "tab_watch", "tab_history"]),
         ]
         for section_key, keys in nav_groups:
-            sec = nav_label(sidebar, self._t(section_key))
-            sec.pack(anchor="w", padx=PAD, pady=(PAD, PAD_SM))
+            sec = nav_label(sidebar_scroll, self._t(section_key))
+            sec.pack(anchor="w", padx=PAD_SM, pady=(PAD, PAD_SM))
             self._nav_sections.append((sec, section_key))
             for key in keys:
                 btn = nav_button(
-                    sidebar,
+                    sidebar_scroll,
                     icon=TAB_ICONS[key],
                     text=self._t(key),
                     command=lambda k=key: self._on_tab_selected(k),
@@ -278,8 +286,8 @@ class _VideoConverterMixin:
                 btn.pack(fill=tk.X, padx=PAD_SM, pady=2)
                 self._nav_buttons[key] = btn
 
-        settings_card = card(sidebar, fg_color="transparent", border=False)
-        settings_card.pack(side=tk.BOTTOM, fill=tk.X, padx=PAD_SM, pady=PAD)
+        settings_card = card(sidebar_scroll, fg_color="transparent", border=False)
+        settings_card.pack(fill=tk.X, padx=PAD_SM, pady=(PAD_LG, PAD_SM))
         self._add_i18n(section_title(settings_card, self._t("settings")), "settings").pack(
             anchor="w", padx=PAD_SM, pady=(PAD_SM, 4)
         )
@@ -845,27 +853,44 @@ class _VideoConverterMixin:
         p = self._tab_history_body
         hist_card = card(p)
         hist_card.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=PAD_SM)
-        tree_wrap = ctk.CTkFrame(hist_card, corner_radius=10)
-        tree_wrap.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=PAD_SM)
+        self._add_i18n(section_title(hist_card, self._t("tab_history")), "tab_history").pack(
+            anchor="w", padx=PAD, pady=(PAD_SM, PAD)
+        )
+
+        tree_shell = data_table_shell(hist_card)
+        tree_shell.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=(0, PAD_SM))
+        tree_inner = ctk.CTkFrame(tree_shell, fg_color="transparent")
+        tree_inner.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+
         cols = ("time", "input", "output")
-        self._history_tree = ttk.Treeview(tree_wrap, columns=cols, show="headings", height=16)
+        self._history_tree = ttk.Treeview(
+            tree_inner, columns=cols, show="headings", style=TREE_STYLE, height=14
+        )
         self._history_tree.heading("time", text=self._t("history_col_time"))
         self._history_tree.heading("input", text=self._t("history_col_in"))
         self._history_tree.heading("output", text=self._t("history_col_out"))
-        self._history_tree.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        self._history_tree.column("time", width=150, minwidth=120, stretch=False)
+        self._history_tree.column("input", width=340, minwidth=160, stretch=True)
+        self._history_tree.column("output", width=340, minwidth=160, stretch=True)
+        self._history_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_sb = ttk.Scrollbar(tree_inner, orient=tk.VERTICAL, command=self._history_tree.yview)
+        self._history_tree.configure(yscrollcommand=tree_sb.set)
+        tree_sb.pack(side=tk.RIGHT, fill=tk.Y)
         self._history_tree.bind("<Double-1>", self._history_double_click)
-        hist_btns = ctk.CTkFrame(p, fg_color="transparent")
-        hist_btns.pack(pady=PAD_SM)
+
+        hist_btns = ctk.CTkFrame(hist_card, fg_color="transparent")
+        hist_btns.pack(fill=tk.X, padx=PAD, pady=(0, PAD_SM))
         self._add_i18n(secondary_button(hist_btns, text="", command=self._history_load), "history_load").pack(
-            side=tk.LEFT, padx=4
+            side=tk.LEFT, padx=(0, PAD_SM)
         )
         self._add_i18n(secondary_button(hist_btns, text="", command=self._history_rerun), "history_rerun").pack(
-            side=tk.LEFT, padx=4
+            side=tk.LEFT, padx=(0, PAD_SM)
         )
         self._add_i18n(secondary_button(hist_btns, text="", command=self._refresh_history), "refresh").pack(
-            side=tk.LEFT, padx=4
+            side=tk.LEFT
         )
         self._refresh_history()
+
     def _uses_dark_theme(self) -> bool:
         if self._follow_system_theme.get():
             return is_dark_mode()
@@ -891,22 +916,13 @@ class _VideoConverterMixin:
         )
         dark = self._uses_dark_theme()
         self._applied_dark = dark
-        style = ttk.Style(self)
-        if dark:
-            bg, fg = "#1e1e1e", "#e0e0e0"
-            list_bg = "#2d2d2d"
-            style.theme_use("clam")
-            style.configure("Treeview", background=list_bg, foreground=fg, fieldbackground=list_bg)
-            style.configure("Treeview.Heading", background=bg, foreground=fg)
-            style.map("Treeview", background=[("selected", "#404040")])
-            self._batch_list.configure(bg=list_bg, fg=fg, selectbackground="#404040")
-            self._merge_listbox.configure(bg=list_bg, fg=fg, selectbackground="#404040")
-        else:
-            style.theme_use("vista" if "vista" in style.theme_names() else "default")
-            style.configure("Treeview", background="white", foreground="black", fieldbackground="white")
-            style.configure("Treeview.Heading", background="SystemButtonFace", foreground="black")
-            self._batch_list.configure(bg="white", fg="black", selectbackground="SystemHighlight")
-            self._merge_listbox.configure(bg="white", fg="black", selectbackground="SystemHighlight")
+        apply_data_widgets_theme(self, dark=dark)
+        if hasattr(self, "_history_tree"):
+            configure_tree_stripes(self._history_tree, dark=dark)
+        if hasattr(self, "_batch_list"):
+            configure_listbox(self._batch_list, dark=dark)
+        if hasattr(self, "_merge_listbox"):
+            configure_listbox(self._merge_listbox, dark=dark)
 
     def _on_system_theme_toggle(self) -> None:
         self._update_dark_checkbox_state()
@@ -1400,8 +1416,15 @@ class _VideoConverterMixin:
         for item in self._history_tree.get_children():
             self._history_tree.delete(item)
         self._history_entries = list(reversed(load_history()))
-        for row in self._history_entries:
-            self._history_tree.insert("", tk.END, values=(row.get("time", ""), row.get("input", ""), row.get("output", "")))
+        configure_tree_stripes(self._history_tree, dark=self._uses_dark_theme())
+        for index, row in enumerate(self._history_entries):
+            tag = "even" if index % 2 else "odd"
+            self._history_tree.insert(
+                "",
+                tk.END,
+                values=(row.get("time", ""), row.get("input", ""), row.get("output", "")),
+                tags=(tag,),
+            )
 
     def _history_get_selected_entry(self) -> dict | None:
         sel = self._history_tree.selection()

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import sys
+import tkinter as tk
 from pathlib import Path
+from tkinter import ttk
 
 import customtkinter as ctk
 
@@ -44,25 +46,54 @@ TAB_ICONS: dict[str, str] = {
     "tab_history": "↺",
 }
 
-# (light, dark)
-_ACCENT = ("#4f7cff", "#5b8cff")
-_ACCENT_HOVER = ("#3d6ae8", "#4a7df5")
-_MUTED = ("#64748b", "#94a3b8")
-_SURFACE = ("#ffffff", "#1c1c28")
-_SURFACE_ALT = ("#eef1f8", "#232334")
-_SIDEBAR = ("#f8f9fc", "#181824")
+# Cyberpunk palette — (light, dark)
+_ACCENT = ("#0088bb", "#00eaff")
+_ACCENT_HOVER = ("#006699", "#00cce6")
+_ACCENT_GLOW = ("#ff0088", "#ff00aa")
+_MUTED = ("#5a6a7a", "#7aa0b0")
+_SURFACE = ("#ffffff", "#12121f")
+_SURFACE_ALT = ("#e8f8ff", "#0a1520")
+_SIDEBAR = ("#eef6ff", "#080810")
+_NEON_BORDER = ("#00aacc", "#00eaff")
+_TABLE_SHELL = ("#f4fbff", "#06060e")
 
 _NAV_ACTIVE_FG = _ACCENT
-_NAV_ACTIVE_TEXT = ("#ffffff", "#ffffff")
+_NAV_ACTIVE_TEXT = ("#ffffff", "#001018")
 _NAV_ACTIVE_HOVER = _ACCENT_HOVER
 _NAV_IDLE_FG = "transparent"
-_NAV_IDLE_TEXT = ("#334155", "#c8ccd8")
-_NAV_IDLE_HOVER = ("#e8eeff", "#2a2a3d")
+_NAV_IDLE_TEXT = ("#1a3040", "#9ec8d8")
+_NAV_IDLE_HOVER = ("#d0f0ff", "#141428")
 
-_BTN_OUTLINE_TEXT = ("#1e3a8a", "#e8eaf0")
-_BTN_OUTLINE_BORDER = ("#4f7cff", "#6b9aff")
-_BTN_OUTLINE_HOVER = ("#dbeafe", "#2a2a3d")
-_BTN_OUTLINE_TEXT_DISABLED = ("#94a3b8", "#6b7280")
+_BTN_OUTLINE_TEXT = ("#005577", "#00eaff")
+_BTN_OUTLINE_BORDER = ("#00aacc", "#00eaff")
+_BTN_OUTLINE_HOVER = ("#ccf0ff", "#141432")
+_BTN_OUTLINE_TEXT_DISABLED = ("#94a3b8", "#4a6070")
+
+TREE_STYLE = "Cyber.Treeview"
+
+
+def data_palette(*, dark: bool) -> dict[str, str]:
+    if dark:
+        return {
+            "row": "#0e0e18",
+            "row_alt": "#141425",
+            "fg": "#b8ecff",
+            "heading_bg": "#0a1525",
+            "heading_fg": "#00eaff",
+            "select_bg": "#003344",
+            "select_fg": "#00ffff",
+            "border": "#00eaff",
+        }
+    return {
+        "row": "#f8fdff",
+        "row_alt": "#eef8ff",
+        "fg": "#0a2030",
+        "heading_bg": "#d0f0ff",
+        "heading_fg": "#006688",
+        "select_bg": "#00ccee",
+        "select_fg": "#001018",
+        "border": "#00aacc",
+    }
 
 
 def init_premium_theme(*, follow_system: bool, dark_manual: bool) -> None:
@@ -80,12 +111,72 @@ def sync_appearance(*, follow_system: bool, dark_manual: bool) -> None:
     init_premium_theme(follow_system=follow_system, dark_manual=dark_manual)
 
 
+def apply_data_widgets_theme(root: tk.Misc, *, dark: bool) -> None:
+    c = data_palette(dark=dark)
+    style = ttk.Style(root)
+    style.theme_use("clam")
+    style.configure(
+        TREE_STYLE,
+        background=c["row"],
+        foreground=c["fg"],
+        fieldbackground=c["row"],
+        borderwidth=0,
+        rowheight=30,
+        font=FONT_MONO,
+    )
+    style.configure(
+        f"{TREE_STYLE}.Heading",
+        background=c["heading_bg"],
+        foreground=c["heading_fg"],
+        borderwidth=0,
+        relief="flat",
+        font=("Segoe UI", 11, "bold"),
+        padding=(10, 8),
+    )
+    style.map(
+        TREE_STYLE,
+        background=[("selected", c["select_bg"])],
+        foreground=[("selected", c["select_fg"])],
+    )
+    style.configure("Cyber.Vertical.TScrollbar", background=c["heading_bg"], troughcolor=c["row"])
+
+
+def configure_tree_stripes(tree: ttk.Treeview, *, dark: bool) -> None:
+    c = data_palette(dark=dark)
+    tree.tag_configure("odd", background=c["row"])
+    tree.tag_configure("even", background=c["row_alt"])
+
+
+def configure_listbox(listbox: tk.Listbox, *, dark: bool) -> None:
+    c = data_palette(dark=dark)
+    listbox.configure(
+        bg=c["row"],
+        fg=c["fg"],
+        selectbackground=c["select_bg"],
+        selectforeground=c["select_fg"],
+        highlightthickness=1,
+        highlightbackground=c["border"],
+        highlightcolor=c["border"],
+        activestyle="none",
+    )
+
+
+def data_table_shell(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
+    return ctk.CTkFrame(
+        parent,
+        corner_radius=CORNER_RADIUS_SM,
+        border_width=2,
+        border_color=_NEON_BORDER,
+        fg_color=_TABLE_SHELL,
+    )
+
+
 def nav_label(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
     return ctk.CTkLabel(
         parent,
         text=text.upper(),
         font=FONT_CAPTION,
-        text_color=_MUTED,
+        text_color=_ACCENT,
         anchor="w",
     )
 
@@ -114,12 +205,15 @@ def set_nav_active(btn: ctk.CTkButton, active: bool) -> None:
             fg_color=_NAV_ACTIVE_FG,
             text_color=_NAV_ACTIVE_TEXT,
             hover_color=_NAV_ACTIVE_HOVER,
+            border_width=1,
+            border_color=_NEON_BORDER,
         )
     else:
         btn.configure(
             fg_color=_NAV_IDLE_FG,
             text_color=_NAV_IDLE_TEXT,
             hover_color=_NAV_IDLE_HOVER,
+            border_width=0,
         )
 
 
@@ -131,7 +225,8 @@ def card(parent: ctk.CTkBaseClass, *, border: bool = True, fg_color=_SURFACE) ->
     return ctk.CTkFrame(
         parent,
         corner_radius=CORNER_RADIUS,
-        border_width=1 if border else 0,
+        border_width=2 if border else 0,
+        border_color=_NEON_BORDER if border else _SURFACE,
         fg_color=fg_color,
     )
 
@@ -141,13 +236,14 @@ def sidebar_panel(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
         parent,
         width=NAV_WIDTH,
         corner_radius=CORNER_RADIUS,
-        border_width=1,
+        border_width=2,
+        border_color=_NEON_BORDER,
         fg_color=_SIDEBAR,
     )
 
 
 def section_title(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
-    return ctk.CTkLabel(parent, text=text, font=FONT_TITLE, anchor="w")
+    return ctk.CTkLabel(parent, text=text, font=FONT_TITLE, anchor="w", text_color=_ACCENT)
 
 
 def page_title(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
@@ -165,17 +261,27 @@ def badge(parent: ctk.CTkBaseClass, text: str) -> ctk.CTkLabel:
         font=FONT_CAPTION,
         corner_radius=999,
         fg_color=_SURFACE_ALT,
-        text_color=_MUTED,
+        text_color=_ACCENT,
         padx=10,
         pady=2,
     )
 
 
 def brand_mark(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
-    frame = ctk.CTkFrame(parent, width=48, height=48, corner_radius=24, fg_color=_ACCENT)
-    ctk.CTkLabel(frame, text="▶", font=("Segoe UI", 22), text_color="#ffffff").place(relx=0.5, rely=0.5, anchor="center")
-    frame.pack_propagate(False)
-    return frame
+    outer = ctk.CTkFrame(
+        parent,
+        width=52,
+        height=52,
+        corner_radius=26,
+        fg_color=_ACCENT,
+        border_width=2,
+        border_color=_ACCENT_GLOW,
+    )
+    ctk.CTkLabel(outer, text="▶", font=("Segoe UI", 22), text_color="#001018").place(
+        relx=0.5, rely=0.5, anchor="center"
+    )
+    outer.pack_propagate(False)
+    return outer
 
 
 def primary_button(parent: ctk.CTkBaseClass, **kwargs) -> ctk.CTkButton:
@@ -184,6 +290,8 @@ def primary_button(parent: ctk.CTkBaseClass, **kwargs) -> ctk.CTkButton:
         corner_radius=CORNER_RADIUS_SM,
         height=40,
         font=FONT_BODY,
+        border_width=1,
+        border_color=_NEON_BORDER,
         **kwargs,
     )
 

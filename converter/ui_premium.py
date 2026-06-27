@@ -55,7 +55,7 @@ _SIDEBAR = ("#f8f9fc", "#181824")
 _NAV_ACTIVE_FG = _ACCENT
 _NAV_ACTIVE_TEXT = ("#ffffff", "#ffffff")
 _NAV_ACTIVE_HOVER = _ACCENT_HOVER
-_NAV_IDLE_FG = ("transparent", "transparent")
+_NAV_IDLE_FG = "transparent"
 _NAV_IDLE_TEXT = ("#334155", "#c8ccd8")
 _NAV_IDLE_HOVER = ("#e8eeff", "#2a2a3d")
 

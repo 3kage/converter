@@ -278,7 +278,7 @@ class _VideoConverterMixin:
                 btn.pack(fill=tk.X, padx=PAD_SM, pady=2)
                 self._nav_buttons[key] = btn
 
-        settings_card = card(sidebar, fg_color=("transparent", "transparent"), border=False)
+        settings_card = card(sidebar, fg_color="transparent", border=False)
         settings_card.pack(side=tk.BOTTOM, fill=tk.X, padx=PAD_SM, pady=PAD)
         self._add_i18n(section_title(settings_card, self._t("settings")), "settings").pack(
             anchor="w", padx=PAD_SM, pady=(PAD_SM, 4)

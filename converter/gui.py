@@ -31,14 +31,26 @@ from .watch_folder import FolderWatcher
 from .ui_premium import (
     FONT_BODY,
     FONT_MONO,
+    FONT_SMALL,
     PAD,
+    PAD_LG,
     PAD_SM,
+    TAB_ICONS,
     animate_progress,
+    badge,
+    brand_mark,
     card,
     init_premium_theme,
+    nav_button,
+    nav_label,
+    nav_text,
+    page_subtitle,
+    page_title,
     primary_button,
     secondary_button,
     section_title,
+    set_nav_active,
+    sidebar_panel,
     sync_appearance,
 )
 from .updater import (
@@ -57,8 +69,8 @@ class _VideoConverterMixin:
         self.i18n = I18n(settings.lang)
         init_premium_theme(follow_system=settings.follow_system_theme, dark_manual=settings.dark)
         self.title(f"{self.i18n.t('app_title')} v{__version__}")
-        self.geometry("1000x880")
-        self.minsize(720, 520)
+        self.geometry("1120x900")
+        self.minsize(880, 560)
 
         self._i18n_widgets: list[tuple[object, str, str]] = []
         self._tab_keys = [
@@ -72,6 +84,8 @@ class _VideoConverterMixin:
         ]
         self._current_tab_key = self._tab_keys[0]
         self._tab_pages: dict[str, ctk.CTkFrame] = {}
+        self._nav_buttons: dict[str, ctk.CTkButton] = {}
+        self._nav_sections: list[tuple[ctk.CTkLabel, str]] = []
         self._help_menu: tk.Menu | None = None
         self._menu: tk.Menu | None = None
 
@@ -186,9 +200,11 @@ class _VideoConverterMixin:
     def _refresh_i18n(self) -> None:
         for widget, key, kind in self._i18n_widgets:
             self._apply_i18n_widget(widget, key, kind)
-        if hasattr(self, "_tab_seg"):
-            self._tab_seg.configure(values=[self._t(k) for k in self._tab_keys])
-            self._tab_seg.set(self._t(self._current_tab_key))
+        for key, btn in self._nav_buttons.items():
+            btn.configure(text=nav_text(TAB_ICONS[key], self._t(key)))
+        for label, key in self._nav_sections:
+            label.configure(text=self._t(key).upper())
+        self._update_page_header()
         self._history_tree.heading("time", text=self._t("history_col_time"))
         self._history_tree.heading("input", text=self._t("history_col_in"))
         self._history_tree.heading("output", text=self._t("history_col_out"))
@@ -200,11 +216,14 @@ class _VideoConverterMixin:
         if self._menu is not None:
             self._menu.entryconfigure(0, label=self._t("help"))
 
-    def _on_tab_selected(self, value: str) -> None:
-        for key in self._tab_keys:
-            if self._t(key) == value:
-                self._show_tab(key)
-                return
+    def _update_page_header(self) -> None:
+        if hasattr(self, "_page_title"):
+            self._page_title.configure(text=self._t(self._current_tab_key))
+        if hasattr(self, "_page_subtitle"):
+            self._page_subtitle.configure(text=self._t(f"{self._current_tab_key}_desc"))
+
+    def _on_tab_selected(self, key: str) -> None:
+        self._show_tab(key)
 
     def _show_tab(self, key: str) -> None:
         self._current_tab_key = key
@@ -213,72 +232,128 @@ class _VideoConverterMixin:
                 page.pack(fill=tk.BOTH, expand=True)
             else:
                 page.pack_forget()
+        for tab_key, btn in self._nav_buttons.items():
+            set_nav_active(btn, tab_key == key)
+        self._update_page_header()
 
     def _build_ui(self) -> None:
         self._build_menu()
-        top = ctk.CTkFrame(self, fg_color="transparent")
-        top.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
+
+        header = card(self)
+        header.pack(fill=tk.X, padx=PAD, pady=(PAD, PAD_SM))
+        header_row = ctk.CTkFrame(header, fg_color="transparent")
+        header_row.pack(fill=tk.X, padx=PAD_LG, pady=PAD)
+        brand_mark(header_row).pack(side=tk.LEFT)
+        title_col = ctk.CTkFrame(header_row, fg_color="transparent")
+        title_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(PAD, 0))
+        title_row = ctk.CTkFrame(title_col, fg_color="transparent")
+        title_row.pack(anchor="w")
+        title_lbl = self._add_i18n(page_title(title_row, self._t("app_title")), "app_title")
+        title_lbl.pack(side=tk.LEFT)
+        badge(title_row, text=f"v{__version__}").pack(side=tk.LEFT, padx=(PAD_SM, 0))
+        self._add_i18n(page_subtitle(title_col, self._t("app_tagline")), "app_tagline").pack(anchor="w", pady=(2, 0))
+
+        main = ctk.CTkFrame(self, fg_color="transparent")
+        main.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=PAD_SM)
+
+        sidebar = sidebar_panel(main)
+        sidebar.pack(side=tk.LEFT, fill=tk.Y, padx=(0, PAD_SM))
+        sidebar.pack_propagate(False)
+
+        nav_groups: list[tuple[str, list[str]]] = [
+            ("nav_workflow", ["tab_convert", "tab_audio", "tab_trim", "tab_advanced"]),
+            ("nav_automation", ["tab_batch", "tab_watch", "tab_history"]),
+        ]
+        for section_key, keys in nav_groups:
+            sec = nav_label(sidebar, self._t(section_key))
+            sec.pack(anchor="w", padx=PAD, pady=(PAD, PAD_SM))
+            self._nav_sections.append((sec, section_key))
+            for key in keys:
+                btn = nav_button(
+                    sidebar,
+                    icon=TAB_ICONS[key],
+                    text=self._t(key),
+                    command=lambda k=key: self._on_tab_selected(k),
+                )
+                btn.pack(fill=tk.X, padx=PAD_SM, pady=2)
+                self._nav_buttons[key] = btn
+
+        settings_card = card(sidebar, fg_color=("transparent", "transparent"), border=False)
+        settings_card.pack(side=tk.BOTTOM, fill=tk.X, padx=PAD_SM, pady=PAD)
+        self._add_i18n(section_title(settings_card, self._t("settings")), "settings").pack(
+            anchor="w", padx=PAD_SM, pady=(PAD_SM, 4)
+        )
         self._add_i18n(
             ctk.CTkCheckBox(
-                top,
+                settings_card,
                 text="",
                 variable=self._follow_system_theme,
                 command=self._on_system_theme_toggle,
-                font=FONT_BODY,
+                font=FONT_SMALL,
             ),
             "system_theme",
-        ).pack(side=tk.LEFT)
+        ).pack(anchor="w", padx=PAD_SM, pady=2)
         self._dark_theme_cb = self._add_i18n(
-            ctk.CTkCheckBox(top, text="", variable=self._dark, command=self._on_dark_toggle, font=FONT_BODY),
+            ctk.CTkCheckBox(
+                settings_card,
+                text="",
+                variable=self._dark,
+                command=self._on_dark_toggle,
+                font=FONT_SMALL,
+            ),
             "dark_theme",
         )
-        self._dark_theme_cb.pack(side=tk.LEFT, padx=(PAD_SM, 0))
-        self._add_i18n(ctk.CTkLabel(top, text="", font=FONT_BODY), "language").pack(side=tk.LEFT, padx=(PAD, 4))
+        self._dark_theme_cb.pack(anchor="w", padx=PAD_SM, pady=2)
+        lang_row = ctk.CTkFrame(settings_card, fg_color="transparent")
+        lang_row.pack(fill=tk.X, padx=PAD_SM, pady=(PAD_SM, 2))
+        self._add_i18n(ctk.CTkLabel(lang_row, text="", font=FONT_SMALL), "language").pack(side=tk.LEFT)
         ctk.CTkComboBox(
-            top,
+            lang_row,
             values=["uk", "en"],
             variable=self._lang,
-            width=70,
+            width=72,
+            height=28,
             state="readonly",
-            font=FONT_BODY,
+            font=FONT_SMALL,
             command=lambda _v: self._change_language(),
-        ).pack(side=tk.LEFT)
+        ).pack(side=tk.RIGHT)
         self._add_i18n(
             ctk.CTkCheckBox(
-                top,
+                settings_card,
                 text="",
                 variable=self._check_updates_on_startup,
                 command=self._save_settings,
-                font=FONT_BODY,
+                font=FONT_SMALL,
             ),
             "update_on_startup",
-        ).pack(side=tk.LEFT, padx=(PAD, 0))
+        ).pack(anchor="w", padx=PAD_SM, pady=2)
         self._add_i18n(
             ctk.CTkCheckBox(
-                top,
+                settings_card,
                 text="",
                 variable=self._notify_on_complete,
                 command=self._save_settings,
-                font=FONT_BODY,
+                font=FONT_SMALL,
             ),
             "notify_on_complete",
-        ).pack(side=tk.LEFT, padx=(PAD_SM, 0))
+        ).pack(anchor="w", padx=PAD_SM, pady=2)
         self._add_i18n(
-            secondary_button(top, text="", command=self._save_custom_preset),
+            secondary_button(settings_card, text="", command=self._save_custom_preset),
             "save_preset",
-        ).pack(side=tk.RIGHT)
+        ).pack(fill=tk.X, padx=PAD_SM, pady=(PAD_SM, PAD_SM))
 
-        self._tab_seg = ctk.CTkSegmentedButton(
-            self,
-            values=[self._t(k) for k in self._tab_keys],
-            command=self._on_tab_selected,
-            font=FONT_BODY,
-        )
-        self._tab_seg.pack(fill=tk.X, padx=PAD, pady=(0, PAD_SM))
-        self._tab_seg.set(self._t(self._current_tab_key))
+        content = ctk.CTkFrame(main, fg_color="transparent")
+        content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self._tab_stack = ctk.CTkFrame(self, fg_color="transparent")
-        self._tab_stack.pack(fill=tk.BOTH, expand=True, padx=PAD, pady=PAD_SM)
+        page_head = ctk.CTkFrame(content, fg_color="transparent")
+        page_head.pack(fill=tk.X, padx=PAD_SM, pady=(0, PAD_SM))
+        self._page_title = page_title(page_head, self._t(self._current_tab_key))
+        self._page_title.pack(anchor="w")
+        self._page_subtitle = page_subtitle(page_head, self._t(f"{self._current_tab_key}_desc"))
+        self._page_subtitle.pack(anchor="w", pady=(2, 0))
+
+        self._tab_stack = ctk.CTkFrame(content, fg_color="transparent")
+        self._tab_stack.pack(fill=tk.BOTH, expand=True)
         tab_attr = {
             "tab_convert": "_tab_convert_body",
             "tab_audio": "_tab_audio_body",
@@ -304,35 +379,40 @@ class _VideoConverterMixin:
         self._build_history_tab()
         self._show_tab(self._current_tab_key)
 
-        bottom = ctk.CTkFrame(self, fg_color="transparent")
-        bottom.pack(fill=tk.X, padx=PAD, pady=PAD_SM)
-        self._progress = ctk.CTkProgressBar(bottom)
+        dock = card(self)
+        dock.pack(fill=tk.X, padx=PAD, pady=(0, PAD))
+        dock_inner = ctk.CTkFrame(dock, fg_color="transparent")
+        dock_inner.pack(fill=tk.X, padx=PAD_LG, pady=PAD)
+        self._progress = ctk.CTkProgressBar(dock_inner, height=10)
         self._progress.pack(fill=tk.X)
         self._progress.set(0)
-        ctk.CTkLabel(bottom, textvariable=self._status, font=FONT_BODY, anchor="w").pack(
+        ctk.CTkLabel(dock_inner, textvariable=self._status, font=FONT_BODY, anchor="w").pack(
             fill=tk.X, pady=(PAD_SM, 0)
         )
         self._cmd_label = ctk.CTkLabel(
-            bottom,
+            dock_inner,
             textvariable=self._cmd_text,
             font=FONT_MONO,
             anchor="w",
-            wraplength=960,
+            wraplength=980,
             justify="left",
         )
         self._cmd_label.pack(fill=tk.X)
         ctk.CTkLabel(
-            bottom,
+            dock_inner,
             textvariable=self._comparison,
             font=FONT_BODY,
             anchor="w",
-            wraplength=960,
+            wraplength=980,
             justify="left",
         ).pack(fill=tk.X)
 
-        btns = ctk.CTkFrame(self, fg_color="transparent")
-        btns.pack(fill=tk.X, padx=PAD, pady=(0, PAD))
-        self._convert_btn = self._add_i18n(primary_button(btns, text="", command=self._start_convert), "convert")
+        btns = ctk.CTkFrame(dock_inner, fg_color="transparent")
+        btns.pack(fill=tk.X, pady=(PAD, 0))
+        self._convert_btn = self._add_i18n(
+            primary_button(btns, text="", command=self._start_convert, width=160),
+            "convert",
+        )
         self._convert_btn.pack(side=tk.LEFT)
         self._add_i18n(secondary_button(btns, text="", command=self._dry_run), "dry_run").pack(
             side=tk.LEFT, padx=(PAD_SM, 0)

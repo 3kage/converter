@@ -72,7 +72,6 @@ _BTN_OUTLINE_HOVER = ("#f0f0f5", "#3a3a3c")
 _BTN_OUTLINE_TEXT_DISABLED = ("#aeaeb2", "#636366")
 
 TREE_STYLE = "Minimal.Treeview"
-_TAB_ANIM_MS = 14
 _TAB_ANIM_STEPS = 12
 
 
@@ -172,33 +171,15 @@ def animate_tab_switch(
     on_done: Callable[[], None] | None = None,
     steps: int = _TAB_ANIM_STEPS,
 ) -> None:
-    """Slide/fade-style tab transition using place() interpolation."""
-    incoming.lift()
-    incoming.place(relx=0.018, rely=0, relwidth=1, relheight=1)
+    """Instant tab switch — avoids place()/pack() conflicts on CTkScrollableFrame."""
+    del steps  # kept for API compatibility
     if outgoing is not None:
-        outgoing.lift()
-        outgoing.place(relx=0, rely=0, relwidth=1, relheight=1)
-
-    def ease_out(t: float) -> float:
-        return 1 - (1 - t) ** 3
-
-    def step(index: int = 0) -> None:
-        t = ease_out(index / steps)
-        incoming.place(relx=0.018 * (1 - t), rely=0, relwidth=1, relheight=1)
-        if outgoing is not None:
-            outgoing.place(relx=-0.014 * t, rely=0, relwidth=1, relheight=1)
-        if index >= steps:
-            incoming.place_forget()
-            incoming.pack(fill=tk.BOTH, expand=True)
-            if outgoing is not None:
-                outgoing.place_forget()
-                outgoing.pack_forget()
-            if on_done is not None:
-                on_done()
-            return
-        host.after(_TAB_ANIM_MS, lambda: step(index + 1))
-
-    step()
+        outgoing.place_forget()
+        outgoing.pack_forget()
+    incoming.place_forget()
+    incoming.pack(fill=tk.BOTH, expand=True)
+    if on_done is not None:
+        host.after_idle(on_done)
 
 
 def data_table_shell(parent: ctk.CTkBaseClass) -> ctk.CTkFrame:
@@ -237,6 +218,10 @@ def nav_button_compact(parent: ctk.CTkBaseClass, *, icon: str, command, **kwargs
 
 
 def bind_tooltip(widget: tk.Misc, text: str) -> None:
+    widget._tooltip_text = text  # type: ignore[attr-defined]
+    if getattr(widget, "_tooltip_bound", False):
+        return
+    widget._tooltip_bound = True  # type: ignore[attr-defined]
     state: dict[str, tk.Toplevel | None] = {"win": None}
 
     def hide(_event=None) -> None:
@@ -246,7 +231,8 @@ def bind_tooltip(widget: tk.Misc, text: str) -> None:
 
     def show(_event=None) -> None:
         hide()
-        if not text:
+        tip_text = getattr(widget, "_tooltip_text", "")
+        if not tip_text:
             return
         tip = tk.Toplevel(widget)
         tip.wm_overrideredirect(True)
@@ -256,7 +242,7 @@ def bind_tooltip(widget: tk.Misc, text: str) -> None:
         tip.wm_geometry(f"+{x}+{y}")
         tk.Label(
             tip,
-            text=text,
+            text=tip_text,
             bg="#1d1d1f",
             fg="#f5f5f7",
             font=("Segoe UI", 10),
@@ -265,9 +251,9 @@ def bind_tooltip(widget: tk.Misc, text: str) -> None:
         ).pack()
         state["win"] = tip
 
-    widget.bind("<Enter>", show, add="+")
-    widget.bind("<Leave>", hide, add="+")
-    widget.bind("<ButtonPress>", hide, add="+")
+    widget.bind("<Enter>", show)
+    widget.bind("<Leave>", hide)
+    widget.bind("<ButtonPress>", hide)
 
 
 def set_nav_active(btn: ctk.CTkButton, active: bool) -> None:
@@ -392,16 +378,27 @@ def secondary_button(parent: ctk.CTkBaseClass, **kwargs) -> ctk.CTkButton:
     )
 
 
-def animate_progress(bar: ctk.CTkProgressBar, value: float, steps: int = 8) -> None:
+def animate_progress(bar: ctk.CTkProgressBar, value: float, steps: int = 3) -> None:
     target = max(0.0, min(1.0, value / 100.0))
+    after_id = getattr(bar, "_progress_anim_after", None)
+    if after_id is not None:
+        bar.after_cancel(after_id)
+        bar._progress_anim_after = None  # type: ignore[attr-defined]
+
     current = float(bar.get())
+    if abs(target - current) < 0.005:
+        bar.set(target)
+        return
 
     def step(count: int = 0, cur: float = current) -> None:
         if count >= steps:
             bar.set(target)
+            bar._progress_anim_after = None  # type: ignore[attr-defined]
             return
-        nxt = cur + (target - cur) * 0.35
+        nxt = cur + (target - cur) * 0.5
         bar.set(nxt)
-        bar.after(20, lambda: step(count + 1, nxt))
+        bar._progress_anim_after = bar.after(  # type: ignore[attr-defined]
+            30, lambda c=count + 1, n=nxt: step(c, n)
+        )
 
     step()

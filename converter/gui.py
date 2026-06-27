@@ -38,8 +38,6 @@ from .ui_premium import (
     PAD_SM,
     TAB_ICONS,
     TREE_STYLE,
-    animate_progress,
-    animate_tab_switch,
     apply_data_widgets_theme,
     bind_tooltip,
     badge,
@@ -96,14 +94,15 @@ class _VideoConverterMixin:
         self._tab_pages: dict[str, ctk.CTkFrame] = {}
         self._nav_buttons: dict[str, ctk.CTkButton] = {}
         self._settings_win: ctk.CTkToplevel | None = None
-        self._tab_animating = False
-        self._pending_tab_key: str | None = None
         self._help_menu: tk.Menu | None = None
         self._menu: tk.Menu | None = None
 
         self._follow_system_theme = tk.BooleanVar(value=settings.follow_system_theme)
         self._dark = tk.BooleanVar(value=settings.dark)
         self._applied_dark: bool | None = None
+        self._last_theme_sig: tuple[bool, bool, bool] | None = None
+        self._progress_flush_after: str | None = None
+        self._progress_pending: tuple[float, str] | None = None
         self._dark_theme_cb: ctk.CTkCheckBox | None = None
         self._lang = tk.StringVar(value=settings.lang)
         self._input_path = tk.StringVar()
@@ -249,55 +248,23 @@ class _VideoConverterMixin:
             self._comparison_label.pack_forget()
 
     def _on_tab_selected(self, key: str) -> None:
-        self._show_tab(key, animate=True)
+        self._show_tab(key)
 
-    def _show_tab(self, key: str, *, animate: bool = True) -> None:
-        if self._tab_animating:
-            self._pending_tab_key = key
-            for tab_key, btn in self._nav_buttons.items():
-                set_nav_active(btn, tab_key == key)
-            if hasattr(self, "_page_title"):
-                self._page_title.configure(text=self._t(key))
-            if hasattr(self, "_page_subtitle"):
-                self._page_subtitle.configure(text=f"· {self._t(f'{key}_desc')}")
-            return
-
+    def _show_tab(self, key: str) -> None:
         if key == self._current_tab_key:
             return
-        old_key = self._current_tab_key
-        outgoing = self._tab_pages[old_key]
-        incoming = self._tab_pages[key]
 
         for tab_key, btn in self._nav_buttons.items():
             set_nav_active(btn, tab_key == key)
         self._update_page_header()
         self._current_tab_key = key
 
-        if not animate:
-            for tab_key, page in self._tab_pages.items():
-                if tab_key == key:
-                    page.place_forget()
-                    page.pack(fill=tk.BOTH, expand=True)
-                else:
-                    page.place_forget()
-                    page.pack_forget()
-            return
-
         for tab_key, page in self._tab_pages.items():
-            if tab_key not in (old_key, key):
-                page.place_forget()
+            page.place_forget()
+            if tab_key == key:
+                page.pack(fill=tk.BOTH, expand=True)
+            else:
                 page.pack_forget()
-
-        self._tab_animating = True
-
-        def _finish_transition() -> None:
-            self._tab_animating = False
-            pending = self._pending_tab_key
-            self._pending_tab_key = None
-            if pending:
-                self._show_tab(pending, animate=True)
-
-        animate_tab_switch(self._tab_stack, outgoing, incoming, on_done=_finish_transition)
 
     def _open_settings_dialog(self) -> None:
         if self._settings_win is not None and self._settings_win.winfo_exists():
@@ -1013,9 +980,20 @@ class _VideoConverterMixin:
             dark = is_dark_mode()
             if dark != self._applied_dark:
                 self._apply_theme()
-        self.after(3000, self._schedule_theme_sync)
+        self.after(15000, self._schedule_theme_sync)
+
+    def _theme_signature(self) -> tuple[bool, bool, bool]:
+        return (
+            self._follow_system_theme.get(),
+            self._dark.get(),
+            self._uses_dark_theme(),
+        )
 
     def _apply_theme(self) -> None:
+        sig = self._theme_signature()
+        if self._last_theme_sig == sig:
+            return
+        self._last_theme_sig = sig
         sync_appearance(
             follow_system=self._follow_system_theme.get(),
             dark_manual=self._dark.get(),
@@ -1413,10 +1391,24 @@ class _VideoConverterMixin:
             elapsed = time.time() - self._progress_start
             remaining = elapsed * (100 - percent) / max(percent, 0.1)
             eta = f" | ETA ~{int(remaining)}s"
-        self.after(0, lambda: self._apply_progress(percent, f"{message[:80]}{eta}"))
+        text = f"{message[:80]}{eta}"
+        self.after(0, lambda p=percent, t=text: self._queue_progress_ui(p, t))
+
+    def _queue_progress_ui(self, percent: float, message: str) -> None:
+        self._progress_pending = (percent, message)
+        if self._progress_flush_after is None:
+            self._progress_flush_after = self.after(100, self._flush_progress_ui)
+
+    def _flush_progress_ui(self) -> None:
+        self._progress_flush_after = None
+        pending = self._progress_pending
+        if pending is None:
+            return
+        percent, message = pending
+        self._apply_progress(percent, message)
 
     def _apply_progress(self, percent: float, message: str) -> None:
-        animate_progress(self._progress, percent)
+        self._progress.set(max(0.0, min(1.0, percent / 100.0)))
         self._status.set(message)
 
     def _on_convert_done(self, output_path: Path, cmd: list[str], cmp_text: str, options: ConvertOptions) -> None:

@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .convert import ConvertOptions, convert_video, verify_output
+from .convert import ConvertOptions, convert_video
 from .options_io import options_from_dict, options_to_dict
 from .settings import pending_batch_path
 
@@ -117,8 +117,6 @@ def _convert_item(
             on_progress(overall, f"[{index}/{total}] {message}")
 
     output_path, cmd = convert_video(options, on_progress=wrapped_progress, cancel_check=cancel_check)
-    if options.verify_output:
-        verify_output(output_path)
     return output_path, cmd
 
 

@@ -1214,12 +1214,16 @@ class _VideoConverterMixin:
 
     def _update_preview(self, path: Path, at_sec: float) -> None:
         preview = generate_preview(path, at_sec=at_sec)
-        if preview and preview.is_file():
+        if not preview or not preview.is_file():
+            return
+        try:
             from PIL import Image
-
-            pil_img = Image.open(str(preview))
-            self._preview_image = ctk.CTkImage(pil_img, size=(224, 126))
-            self._preview_label.configure(image=self._preview_image, text="")
+        except ImportError:
+            self._preview_label.configure(image=None, text=self._t("preview"))
+            return
+        pil_img = Image.open(str(preview))
+        self._preview_image = ctk.CTkImage(pil_img, size=(224, 126))
+        self._preview_label.configure(image=self._preview_image, text="")
 
     def _on_preview_seek(self, _value: str | None = None) -> None:
         text = self._input_path.get().strip()

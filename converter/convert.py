@@ -177,6 +177,8 @@ def build_ffmpeg_args(options: ConvertOptions, *, pass_number: int | None = None
     end = _parse_time(options.end_time)
     if start:
         args.extend(["-ss", start])
+    if end:
+        args.extend(["-to", end])
 
     video_inputs = [options.input_path.resolve(), *[p.resolve() for p in options.merge_inputs]]
     for path in video_inputs:
@@ -195,9 +197,6 @@ def build_ffmpeg_args(options: ConvertOptions, *, pass_number: int | None = None
         args.extend(["-i", str(options.watermark_path.resolve())])
     if extra_cover:
         args.extend(["-i", str(options.cover_art_path.resolve())])
-
-    if end:
-        args.extend(["-to", end])
 
     if options.extract_audio:
         args.extend(["-vn", "-map", f"0:a:{options.audio_stream or 0}"])
@@ -252,7 +251,15 @@ def build_ffmpeg_args(options: ConvertOptions, *, pass_number: int | None = None
             args.extend(["-map", f"0:a:{options.audio_stream}"])
         elif not options.replace_audio:
             args.extend(["-map", "0:a?"])
-        args.extend(["-c", "copy"])
+        if extra_audio or options.replace_audio:
+            args.extend(["-c:v", "copy"])
+            acodec = options.audio_codec or str(
+                OUTPUT_PRESETS.get(output_format, OUTPUT_PRESETS["mp4"])["acodec"]
+            )
+            if acodec:
+                args.extend(["-c:a", acodec])
+        else:
+            args.extend(["-c", "copy"])
         args.append(str(output_path))
         return args
 
@@ -344,7 +351,15 @@ def build_ffmpeg_args(options: ConvertOptions, *, pass_number: int | None = None
     if pass_number == 2:
         args.extend(["-pass", "2", "-passlogfile", str(output_path.with_suffix(""))])
 
-    if options.crf is not None and vcodec not in ("copy", "gif") and "nvenc" not in vcodec and "videotoolbox" not in vcodec:
+    if options.two_pass and options.video_bitrate and vcodec:
+        args.extend(["-b:v", options.video_bitrate])
+    elif (
+        options.crf is not None
+        and vcodec not in ("copy", "gif")
+        and "nvenc" not in vcodec
+        and "videotoolbox" not in vcodec
+        and not options.two_pass
+    ):
         args.extend(["-crf", str(options.crf)])
     elif options.video_bitrate and vcodec:
         args.extend(["-b:v", options.video_bitrate])
@@ -404,7 +419,15 @@ def convert_video(
     if options.start_time or options.end_time or options.merge_inputs:
         duration_sec = None
 
-    if options.two_pass and options.crf is not None and not options.dry_run:
+    if (
+        options.two_pass
+        and options.video_bitrate
+        and not options.dry_run
+        and not options.copy_streams
+        and not options.extract_audio
+        and not options.extract_subtitles
+        and not options.gif_mode
+    ):
         pass1 = build_ffmpeg_args(options, pass_number=1)
         run_ffmpeg(pass1, dry_run=False, cancel_check=cancel_check)
         args = build_ffmpeg_args(options, pass_number=2)

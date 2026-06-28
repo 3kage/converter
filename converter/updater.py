@@ -37,11 +37,11 @@ def check_for_updates(timeout: float = 10.0) -> tuple[bool, str, str]:
 
 
 def get_release_download_url(platform: str | None = None) -> str | None:
-    platform = platform or sys.platform
+    platform_key = platform or sys.platform
     data = _fetch_latest_release()
-    if sys.platform == "win32":
+    if platform_key == "win32":
         needle = "windows"
-    elif sys.platform == "darwin":
+    elif platform_key == "darwin":
         needle = "mac"
     else:
         needle = "linux"

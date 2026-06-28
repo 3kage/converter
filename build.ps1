@@ -3,8 +3,7 @@ $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectRoot
 
 Write-Host "Installing build dependencies..."
-python -m pip install -e . -q
-python -m pip install -r requirements-dev.txt -q
+python -m pip install -e ".[dev]" -q
 
 $ffmpegDir = Join-Path $ProjectRoot "ffmpeg"
 New-Item -ItemType Directory -Force -Path $ffmpegDir | Out-Null

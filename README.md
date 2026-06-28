@@ -1,8 +1,30 @@
 # Video Converter
 
-Крос-платформний конвертер відео на базі **FFmpeg** з GUI (tkinter), CLI та автооновленням.
+Крос-платформний конвертер відео на базі **FFmpeg** з GUI (CustomTkinter), CLI та автооновленням.
 
 Репозиторій: https://github.com/3kage/converter
+
+## Залежності
+
+| Режим | Python-пакети | Зовнішні утиліти |
+|-------|---------------|------------------|
+| **Готовий .exe / .app** (Releases) | Не потрібні | FFmpeg (вбудований у збірку) |
+| **CLI** з вихідного коду | Не потрібні (лише stdlib) | FFmpeg у PATH |
+| **GUI** з вихідного коду | `customtkinter`, `Pillow`, `tkinterdnd2`, … | FFmpeg + **tkinter** (системний) |
+| **Збірка** | `pyinstaller` + GUI-залежності | FFmpeg |
+
+```bash
+# Лише CLI
+pip install -e .
+
+# GUI з вихідного коду
+pip install -e ".[gui]"
+# або
+pip install -r requirements.txt && pip install -e .
+
+# Розробка / збірка
+pip install -e ".[dev]"
+```
 
 ## Можливості
 
@@ -20,11 +42,11 @@
 ## Швидкий старт
 
 ```bash
-pip install -e .
+pip install -e ".[gui]"
 python video_converter_gui.py
 ```
 
-CLI:
+CLI (без додаткових pip-пакетів):
 
 ```bash
 python -m converter info video.mov

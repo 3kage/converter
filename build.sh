@@ -10,8 +10,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 echo "Installing build dependencies..."
-python3 -m pip install -e . -q
-python3 -m pip install -r requirements-dev.txt -q
+python3 -m pip install -e ".[dev]" -q
 
 FFMPEG_DIR="$PROJECT_ROOT/ffmpeg"
 mkdir -p "$FFMPEG_DIR"

@@ -6,15 +6,24 @@ build-backend = "setuptools.build_meta"
 name = "video-converter"
 version = "2.7.2"
 description = "Аналіз та конвертація відеофайлів через FFmpeg"
-readme = "requirements.txt"
+readme = "README.md"
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
 gui = [
     "customtkinter>=5.2.0",
-    "tkinterdnd2>=0.4.2",
+    "darkdetect>=0.8.0",
     "Pillow>=10.0.0",
+    "tkinterdnd2>=0.4.2",
     "windnd>=1.0.7; sys_platform == 'win32'",
+]
+dev = [
+    "customtkinter>=5.2.0",
+    "darkdetect>=0.8.0",
+    "Pillow>=10.0.0",
+    "tkinterdnd2>=0.4.2",
+    "windnd>=1.0.7; sys_platform == 'win32'",
+    "pyinstaller>=6.0",
 ]
 
 [project.scripts]

@@ -1,15 +1,17 @@
-# Залежності не потрібні — використовується лише стандартна бібліотека Python.
-# Потрібні зовнішні утиліти: ffmpeg та ffprobe (частина пакета FFmpeg).
+# GUI-залежності для запуску з вихідного коду.
+# CLI (python -m converter) працює лише на стандартній бібліотеці Python.
 #
-# GUI (Python):
-#   pip install -e ".[gui]"   або: pip install customtkinter tkinterdnd2
-#   Windows: python video_converter_gui.py
-#   macOS:   ./run_gui.sh
+# Встановлення:
+#   pip install -r requirements.txt
+#   або: pip install -e ".[gui]"
 #
-# Збірка exe / app:
-#   Windows: powershell -ExecutionPolicy Bypass -File build.ps1
-#   macOS:   chmod +x build.sh && ./build.sh
-#
-# Windows: winget install Gyan.FFmpeg
-# macOS:   brew install ffmpeg
-# Linux:   sudo apt install ffmpeg
+# Зовнішня утиліта (обовʼязково): FFmpeg (ffmpeg + ffprobe)
+#   Windows: winget install Gyan.FFmpeg
+#   macOS:   brew install ffmpeg
+#   Linux:   sudo apt install ffmpeg
+
+customtkinter>=5.2.0
+darkdetect>=0.8.0
+Pillow>=10.0.0
+tkinterdnd2>=0.4.2
+windnd>=1.0.7; sys_platform == "win32"

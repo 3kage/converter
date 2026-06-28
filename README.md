@@ -13,6 +13,33 @@
 | **GUI** з вихідного коду | `customtkinter`, `Pillow`, `tkinterdnd2`, … | FFmpeg + **tkinter** (системний) |
 | **Збірка** | `pyinstaller` + GUI-залежності | FFmpeg |
 
+## Портативність
+
+Програма **завжди портативна**: налаштування, історія, логи та тимчасові файли зберігаються поруч із програмою, без запису в AppData чи `~/.local`.
+
+| Платформа | Структура |
+|-----------|-----------|
+| **Windows / Linux** | `VideoConverter/data/` (поруч із `.exe` / бінарником) |
+| **macOS** | `VideoConverter-data/` (поруч із `VideoConverter.app`) |
+| **З вихідного коду** | `./data/` у корені репозиторію |
+
+```
+VideoConverter/              Windows / Linux
+├── VideoConverter.exe
+├── ffmpeg/
+└── data/
+    ├── settings.json
+    ├── history.json
+    └── errors.log
+
+VideoConverter.app           macOS — копіюйте разом із папкою даних
+VideoConverter-data/
+├── settings.json
+└── ...
+```
+
+При першому запуску після оновлення дані автоматично копіюються зі старого місця (AppData / `~/.local`), якщо вони ще там є.
+
 ```bash
 # Лише CLI
 pip install -e .

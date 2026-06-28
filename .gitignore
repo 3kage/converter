@@ -1,3 +1,7 @@
+# Portable app data (settings, history, logs)
+data/
+VideoConverter-data/
+
 # Build artifacts
 dist/
 build/

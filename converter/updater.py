@@ -74,8 +74,7 @@ def download_latest_release(dest_dir: Path | None = None) -> Path:
     return target
 
 
-def is_frozen() -> bool:
-    return bool(getattr(sys, "frozen", False))
+from .paths import app_root, is_frozen
 
 
 def get_install_paths() -> tuple[Path, Path]:
@@ -84,9 +83,9 @@ def get_install_paths() -> tuple[Path, Path]:
         parts = exe.parts
         for index, part in enumerate(parts):
             if part.endswith(".app"):
-                app_root = Path(*parts[: index + 1])
-                return app_root, exe
-    return exe.parent, exe
+                app_bundle = Path(*parts[: index + 1])
+                return app_bundle, exe
+    return app_root(), exe
 
 
 def can_auto_update() -> bool:

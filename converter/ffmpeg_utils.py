@@ -9,6 +9,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .paths import app_root, is_frozen
+
 ProgressCallback = Callable[[float, str], None]
 
 
@@ -18,13 +20,12 @@ class FFmpegNotFoundError(RuntimeError):
 
 def _bundled_bin_dirs() -> list[Path]:
     dirs: list[Path] = []
-    if getattr(sys, "frozen", False):
-        dirs.append(Path(sys.executable).resolve().parent / "ffmpeg")
+    if is_frozen():
+        dirs.append(app_root() / "ffmpeg")
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
             dirs.append(Path(meipass) / "ffmpeg")
-    project_root = Path(__file__).resolve().parent.parent
-    dirs.append(project_root / "ffmpeg")
+    dirs.append(app_root() / "ffmpeg")
     return dirs
 
 

@@ -18,6 +18,7 @@ a = Analysis(
         'converter.convert',
         'converter.ffmpeg_utils',
         'converter.platform_utils',
+        'converter.paths',
         'converter.probe',
         'converter.presets',
         'converter.batch',

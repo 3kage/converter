@@ -13,7 +13,7 @@ a = Analysis(
     datas=ctk_datas + theme_datas,
     hiddenimports=[
         'converter', 'converter.cli', 'converter.convert', 'converter.ffmpeg_utils',
-        'converter.platform_utils', 'converter.probe', 'converter.presets', 'converter.batch',
+        'converter.platform_utils', 'converter.paths', 'converter.probe', 'converter.presets', 'converter.batch',
         'converter.i18n', 'converter.history', 'converter.hardware', 'converter.preview',
         'converter.compare', 'converter.updater', 'converter.dnd', 'converter.filters',
         'converter.streams', 'converter.settings', 'converter.options_io', 'converter.notifications',

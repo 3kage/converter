@@ -40,6 +40,7 @@ a = Analysis(
         'converter.system_theme',
         'converter.ui_premium',
         'converter.recovery',
+        'converter.security',
         'customtkinter',
         'tkinterdnd2',
     ],

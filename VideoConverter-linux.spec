@@ -18,7 +18,7 @@ a = Analysis(
         'converter.compare', 'converter.updater', 'converter.dnd', 'converter.filters',
         'converter.streams', 'converter.settings', 'converter.options_io', 'converter.notifications',
         'converter.file_scan', 'converter.watch_folder', 'converter.background', 'converter.system_theme',
-        'converter.ui_premium', 'converter.recovery', 'customtkinter', 'tkinterdnd2',
+        'converter.ui_premium', 'converter.recovery', 'converter.security', 'customtkinter', 'tkinterdnd2',
     ],
     hookspath=[],
     hooksconfig={},

@@ -150,6 +150,7 @@ class _VideoConverterMixin:
         self._video_codec = tk.StringVar(value=settings.video_codec)
         self._audio_codec = tk.StringVar(value=settings.audio_codec)
         self._video_bitrate = tk.StringVar(value=settings.video_bitrate)
+        self._audio_bitrate = tk.StringVar(value=settings.audio_bitrate)
         self._preserve_chapters = tk.BooleanVar(value=settings.preserve_chapters)
         self._deinterlace = tk.BooleanVar(value=False)
         self._denoise = tk.BooleanVar(value=False)
@@ -631,6 +632,10 @@ class _VideoConverterMixin:
         ctk.CTkEntry(g, textvariable=self._audio_codec, width=120, font=FONT_BODY).grid(row=4, column=3, sticky=tk.W, pady=PAD_SM)
         self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "video_bitrate").grid(row=5, column=0, sticky=tk.W, pady=PAD_SM)
         ctk.CTkEntry(g, textvariable=self._video_bitrate, width=120, font=FONT_BODY).grid(row=5, column=1, sticky=tk.W, pady=PAD_SM)
+        self._add_i18n(ctk.CTkLabel(g, text="", font=FONT_BODY), "audio_bitrate").grid(
+            row=5, column=2, sticky=tk.W, padx=(PAD, PAD_SM), pady=PAD_SM
+        )
+        ctk.CTkEntry(g, textvariable=self._audio_bitrate, width=120, font=FONT_BODY).grid(row=5, column=3, sticky=tk.W, pady=PAD_SM)
         self._add_i18n(
             ctk.CTkCheckBox(g, text="", variable=self._copy_streams, font=FONT_BODY), "copy_streams"
         ).grid(row=6, column=0, columnspan=2, sticky=tk.W)
@@ -1034,6 +1039,7 @@ class _VideoConverterMixin:
                 video_codec=self._video_codec.get(),
                 audio_codec=self._audio_codec.get(),
                 video_bitrate=self._video_bitrate.get(),
+                audio_bitrate=self._audio_bitrate.get(),
                 watermark_position=self._watermark_position.get(),
                 extract_subtitle_format=self._extract_sub_format.get(),
             )
@@ -1050,6 +1056,7 @@ class _VideoConverterMixin:
             crf=None if self._copy_streams.get() else int(self._crf.get()),
             preset=self._preset.get(),
             video_bitrate=self._video_bitrate.get().strip() or None,
+            audio_bitrate=self._audio_bitrate.get().strip() or None,
             scale=scale,
             format=self._format.get().lstrip("."),
         )
@@ -1279,6 +1286,7 @@ class _VideoConverterMixin:
         vcodec = self._video_codec.get().strip() or None
         acodec = self._audio_codec.get().strip() or None
         vbitrate = self._video_bitrate.get().strip() or None
+        abitrate = self._audio_bitrate.get().strip() or None
         return ConvertOptions(
             input_path=input_path,
             output_path=out,
@@ -1286,6 +1294,7 @@ class _VideoConverterMixin:
             video_codec=vcodec,
             audio_codec=acodec,
             video_bitrate=vbitrate,
+            audio_bitrate=abitrate,
             crf=None if self._copy_streams.get() else int(self._crf.get()),
             preset=self._preset.get(),
             copy_streams=self._copy_streams.get(),
@@ -1552,6 +1561,7 @@ class _VideoConverterMixin:
         self._video_codec.set(options.video_codec or "")
         self._audio_codec.set(options.audio_codec or "")
         self._video_bitrate.set(options.video_bitrate or "")
+        self._audio_bitrate.set(options.audio_bitrate or "")
         if options.crf is not None:
             self._crf.set(int(options.crf))
         self._preset.set(options.preset)

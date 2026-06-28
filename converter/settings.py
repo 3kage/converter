@@ -49,6 +49,7 @@ class AppSettings:
     video_codec: str = ""
     audio_codec: str = ""
     video_bitrate: str = ""
+    audio_bitrate: str = ""
     watermark_position: str = "10:10"
     extract_subtitle_format: str = "srt"
 

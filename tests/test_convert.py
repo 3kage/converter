@@ -63,6 +63,16 @@ class BuildFfmpegArgsTests(unittest.TestCase):
         self.assertIn("-b:v", pass2)
         self.assertNotIn("-crf", pass2)
 
+    def test_audio_bitrate_is_passed_to_ffmpeg(self) -> None:
+        options = ConvertOptions(
+            input_path=Path("/tmp/video.mp4"),
+            audio_bitrate="192k",
+            overwrite=True,
+        )
+        args = build_ffmpeg_args(options)
+        self.assertIn("-b:a", args)
+        self.assertEqual(args[args.index("-b:a") + 1], "192k")
+
     def test_convert_video_skips_two_pass_without_bitrate(self) -> None:
         from converter.convert import convert_video
 
@@ -84,9 +94,7 @@ class BuildFfmpegArgsTests(unittest.TestCase):
 class BatchResumeTests(unittest.TestCase):
     def test_batch_resume_without_job_uses_pending_file(self) -> None:
         from converter.background import run_saved_batch
-        from converter.settings import pending_batch_path
 
-        pending = pending_batch_path()
         with patch.object(Path, "is_file", return_value=True), patch.object(
             Path, "read_text", return_value='{"items":[{"input":"/a.mp4","output":"/b.mp4"}],"options":{"input_path":"/a.mp4","output_path":"/b.mp4"}}'
         ), patch("converter.background.run_batch", return_value=[(Path("/b.mp4"), [])]), patch(
@@ -103,13 +111,28 @@ class UpdaterTests(unittest.TestCase):
         from converter.updater import get_release_download_url
 
         assets = [
-            {"name": "VideoConverter-windows.zip", "browser_download_url": "https://example/windows.zip"},
-            {"name": "VideoConverter-mac.zip", "browser_download_url": "https://example/mac.zip"},
-            {"name": "VideoConverter-linux.zip", "browser_download_url": "https://example/linux.zip"},
+            {
+                "name": "VideoConverter-windows.zip",
+                "browser_download_url": "https://github.com/3kage/converter/releases/download/v1/VideoConverter-windows.zip",
+            },
+            {
+                "name": "VideoConverter-mac.zip",
+                "browser_download_url": "https://github.com/3kage/converter/releases/download/v1/VideoConverter-mac.zip",
+            },
+            {
+                "name": "VideoConverter-linux.zip",
+                "browser_download_url": "https://github.com/3kage/converter/releases/download/v1/VideoConverter-linux.zip",
+            },
         ]
         with patch("converter.updater._fetch_latest_release", return_value={"assets": assets}):
-            self.assertEqual(get_release_download_url("linux"), "https://example/linux.zip")
-            self.assertEqual(get_release_download_url("win32"), "https://example/windows.zip")
+            self.assertEqual(
+                get_release_download_url("linux"),
+                "https://github.com/3kage/converter/releases/download/v1/VideoConverter-linux.zip",
+            )
+            self.assertEqual(
+                get_release_download_url("win32"),
+                "https://github.com/3kage/converter/releases/download/v1/VideoConverter-windows.zip",
+            )
 
 
 if __name__ == "__main__":

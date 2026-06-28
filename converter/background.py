@@ -54,6 +54,9 @@ def run_saved_batch(job_path: Path | None = None) -> int:
     ]
     if not items:
         return 1
+    for item in items:
+        if not item.input_path.is_file():
+            return 1
     options = options_from_dict(data["options"])
     results = run_batch(items, options)
     clear_pending_batch()

@@ -155,7 +155,7 @@ def analyze_file(input_path: Path) -> MediaInfo:
         container=fmt.get("format_name") or "—",
         format_long_name=fmt.get("format_long_name") or "—",
         duration_sec=_safe_float(fmt.get("duration")),
-        size_bytes=int(fmt["size"]) if fmt.get("size") else None,
+        size_bytes=int(fmt["size"]) if fmt.get("size") is not None else None,
         overall_bitrate=_fmt_bitrate(fmt.get("bit_rate")),
         streams=streams,
         tags={str(k): str(v) for k, v in tags.items()},

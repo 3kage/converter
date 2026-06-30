@@ -1,5 +1,5 @@
-# GUI dependencies (pip install -e . && pip install customtkinter tkinterdnd2 windnd)
-customtkinter>=5.2.0
+# Залежності для розробки та збірки (.exe / .app / Linux binary).
+#   pip install -e ".[dev]"
+
+-r requirements.txt
 pyinstaller>=6.0
-windnd>=1.0.7; sys_platform == "win32"
-tkinterdnd2>=0.4.2

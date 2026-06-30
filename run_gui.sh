@@ -9,5 +9,5 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
   exit 1
 fi
 
-python3 -m pip install -e . -q
+python3 -m pip install -e ".[gui]" -q
 python3 video_converter_gui.py

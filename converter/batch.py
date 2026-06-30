@@ -8,12 +8,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .convert import ConvertOptions, convert_video, verify_output
+from .convert import ConvertOptions, convert_video
 from .options_io import options_from_dict, options_to_dict
 from .settings import pending_batch_path
 
 _pause_event = threading.Event()
 _pause_event.set()
+_progress_lock = threading.Lock()
 
 
 def pause_batch() -> None:
@@ -114,11 +115,10 @@ def _convert_item(
     def wrapped_progress(percent: float, message: str) -> None:
         if on_progress:
             overall = ((index - 1) / total * 100) + (percent / total)
-            on_progress(overall, f"[{index}/{total}] {message}")
+            with _progress_lock:
+                on_progress(overall, f"[{index}/{total}] {message}")
 
     output_path, cmd = convert_video(options, on_progress=wrapped_progress, cancel_check=cancel_check)
-    if options.verify_output:
-        verify_output(output_path)
     return output_path, cmd
 
 

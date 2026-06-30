@@ -10,23 +10,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import __version__
-from .updater import can_auto_update, get_install_paths, is_frozen
+from .paths import data_dir, is_frozen
+from .updater import can_auto_update, get_install_paths
 
 ROLLBACK_ENV = "VIDEO_CONVERTER_ROLLBACK"
-STATE_DIR_NAME = "VideoConverter"
 BACKUP_DIR_NAME = "VideoConverter_previous"
 
 
 def _state_dir() -> Path:
-    if sys.platform == "win32":
-        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = Path.home() / ".local" / "share"
-    path = base / STATE_DIR_NAME
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return data_dir()
 
 
 def _crash_log() -> Path:

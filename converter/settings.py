@@ -1,22 +1,15 @@
 from __future__ import annotations
 
 import json
-import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .paths import data_dir
 from .presets import QualityPreset
 
 
 def _config_dir() -> Path:
-    if sys.platform == "win32":
-        base = Path.home() / "AppData" / "Local" / "VideoConverter"
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support" / "VideoConverter"
-    else:
-        base = Path.home() / ".local" / "share" / "video-converter"
-    base.mkdir(parents=True, exist_ok=True)
-    return base
+    return data_dir()
 
 
 def settings_path() -> Path:
@@ -49,6 +42,7 @@ class AppSettings:
     video_codec: str = ""
     audio_codec: str = ""
     video_bitrate: str = ""
+    audio_bitrate: str = ""
     watermark_position: str = "10:10"
     extract_subtitle_format: str = "srt"
 

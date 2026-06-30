@@ -3,8 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-python3 -m pip install -e . -q
-python3 -m pip install -r requirements-dev.txt -q
+python3 -m pip install -e ".[dev]" -q
 
 FFMPEG_DIR="$ROOT/ffmpeg"
 mkdir -p "$FFMPEG_DIR"

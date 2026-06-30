@@ -1,27 +1,18 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .options_io import options_from_dict, options_to_dict
+from .paths import data_dir
 
 
 def _history_path() -> Path:
-    if sys.platform == "win32":
-        base = Path.home() / "AppData" / "Local" / "VideoConverter"
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support" / "VideoConverter"
-    else:
-        base = Path.home() / ".local" / "share" / "video-converter"
-    base.mkdir(parents=True, exist_ok=True)
-    return base / "history.json"
+    return data_dir() / "history.json"
 
 
 def _log_path() -> Path:
-    return _history_path().parent / "errors.log"
+    return data_dir() / "errors.log"
 
 
 def load_history(limit: int = 50) -> list[dict]:

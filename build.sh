@@ -10,8 +10,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 echo "Installing build dependencies..."
-python3 -m pip install -e . -q
-python3 -m pip install -r requirements-dev.txt -q
+python3 -m pip install -e ".[dev]" -q
 
 FFMPEG_DIR="$PROJECT_ROOT/ffmpeg"
 mkdir -p "$FFMPEG_DIR"
@@ -53,6 +52,11 @@ cp "$FFMPEG_DIR/ffmpeg" "$TARGET_FFMPEG/ffmpeg"
 cp "$FFMPEG_DIR/ffprobe" "$TARGET_FFMPEG/ffprobe"
 chmod +x "$TARGET_FFMPEG/ffmpeg" "$TARGET_FFMPEG/ffprobe"
 
+for launcher in MAC_OPEN.command ЗАПУСТИТИ.command ОТКРЫТЬ.command MAC_ЗАПУСК.txt MAC_INSTALL_EN.txt; do
+  cp "$PROJECT_ROOT/$launcher" "$PROJECT_ROOT/dist/"
+  chmod +x "$PROJECT_ROOT/dist/$launcher" 2>/dev/null || true
+done
+
 echo "Smoke test: bundled FFmpeg inside app..."
 "${TARGET_FFMPEG}/ffmpeg" -version >/dev/null
 "${TARGET_FFMPEG}/ffprobe" -version >/dev/null
@@ -60,4 +64,5 @@ echo "Smoke test: bundled FFmpeg inside app..."
 echo ""
 echo "Build complete."
 echo "Run: open \"$PROJECT_ROOT/dist/VideoConverter.app\""
+echo "Or double-click: dist/ЗАПУСТИТИ.command (removes Gatekeeper quarantine)"
 echo "Or:  \"$APP_MACOS/VideoConverter\""

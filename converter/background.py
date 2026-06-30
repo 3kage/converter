@@ -44,7 +44,7 @@ def _options_payload(base: ConvertOptions, item: BatchItem) -> dict:
 
 
 def run_saved_batch(job_path: Path | None = None) -> int:
-    path = job_path or pending_batch_path()
+    path = pending_batch_path() if job_path is None else job_path
     if not path.is_file():
         return 1
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -54,6 +54,9 @@ def run_saved_batch(job_path: Path | None = None) -> int:
     ]
     if not items:
         return 1
+    for item in items:
+        if not item.input_path.is_file():
+            return 1
     options = options_from_dict(data["options"])
     results = run_batch(items, options)
     clear_pending_batch()

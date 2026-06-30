@@ -12,23 +12,23 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import __version__
+from .security import is_trusted_release_url, require_trusted_release_url, safe_extract_zip
 
 REPO = "3kage/converter"
 ProgressCallback = Callable[[int, int], None]
 
 
-def _fetch_latest_release() -> dict:
+def _fetch_latest_release(timeout: float = 10.0) -> dict:
     url = f"https://api.github.com/repos/{REPO}/releases/latest"
     request = urllib.request.Request(
         url, headers={"Accept": "application/vnd.github+json", "User-Agent": "VideoConverter"}
     )
-    with urllib.request.urlopen(request, timeout=10) as response:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def check_for_updates(timeout: float = 10.0) -> tuple[bool, str, str]:
-    del timeout
-    data = _fetch_latest_release()
+    data = _fetch_latest_release(timeout=timeout)
     latest = (data.get("tag_name") or data.get("name") or "").lstrip("v")
     page = data.get("html_url") or f"https://github.com/{REPO}/releases"
     if not latest:
@@ -37,18 +37,20 @@ def check_for_updates(timeout: float = 10.0) -> tuple[bool, str, str]:
 
 
 def get_release_download_url(platform: str | None = None) -> str | None:
-    platform = platform or sys.platform
+    platform_key = platform or sys.platform
     data = _fetch_latest_release()
-    if sys.platform == "win32":
+    if platform_key == "win32":
         needle = "windows"
-    elif sys.platform == "darwin":
+    elif platform_key == "darwin":
         needle = "mac"
     else:
         needle = "linux"
     for asset in data.get("assets", []):
         name = (asset.get("name") or "").lower()
         if needle in name and name.endswith(".zip"):
-            return asset.get("browser_download_url")
+            url = asset.get("browser_download_url")
+            if url and is_trusted_release_url(url):
+                return url
     return None
 
 
@@ -67,12 +69,12 @@ def download_latest_release(dest_dir: Path | None = None) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
     filename = url.rsplit("/", 1)[-1]
     target = target_dir / filename
+    require_trusted_release_url(url)
     urllib.request.urlretrieve(url, target)
     return target
 
 
-def is_frozen() -> bool:
-    return bool(getattr(sys, "frozen", False))
+from .paths import app_root, is_frozen
 
 
 def get_install_paths() -> tuple[Path, Path]:
@@ -81,9 +83,9 @@ def get_install_paths() -> tuple[Path, Path]:
         parts = exe.parts
         for index, part in enumerate(parts):
             if part.endswith(".app"):
-                app_root = Path(*parts[: index + 1])
-                return app_root, exe
-    return exe.parent, exe
+                app_bundle = Path(*parts[: index + 1])
+                return app_bundle, exe
+    return app_root(), exe
 
 
 def can_auto_update() -> bool:
@@ -104,6 +106,7 @@ def download_with_progress(
     target: Path,
     progress: ProgressCallback | None = None,
 ) -> Path:
+    require_trusted_release_url(url)
     request = urllib.request.Request(url, headers={"User-Agent": "VideoConverter"})
     target.parent.mkdir(parents=True, exist_ok=True)
     with urllib.request.urlopen(request, timeout=120) as response:
@@ -125,7 +128,7 @@ def download_with_progress(
 def extract_release(archive: Path, dest_dir: Path) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive) as zf:
-        zf.extractall(dest_dir)
+        safe_extract_zip(zf, dest_dir)
     return find_payload_root(dest_dir)
 
 

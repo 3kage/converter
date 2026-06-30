@@ -216,8 +216,7 @@ def cmd_batch(args: argparse.Namespace) -> int:
 
 
 def cmd_batch_resume(args: argparse.Namespace) -> int:
-    job = args.job
-    return run_saved_batch(job) if job else run_saved_batch(Path())
+    return run_saved_batch(args.job)
 
 
 def cmd_formats(_: argparse.Namespace) -> int:

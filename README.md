@@ -93,12 +93,20 @@ python -m converter batch --input-dir ./videos --recursive -f mp4 --parallel 2
 
 ## macOS (без підпису Apple)
 
+**Не натискайте «Переместить в Корзину»** — програма не пошкоджена, macOS блокує файли з Telegram/браузера.
+
+**Найпростіше:** після розархівування подвійний клік по **`ЗАПУСТИТИ.command`** (або `ОТКРЫТЬ.command` / `MAC_OPEN.command`).
+
+Або в Терміналі:
+
 ```bash
-xattr -cr VideoConverter.app
-open VideoConverter.app
+xattr -cr ~/Downloads/VideoConverter.app
+open ~/Downloads/VideoConverter.app
 ```
 
-Підпис і нотаризація потребують Apple Developer Program (~$99/рік).
+Або: ПКМ по `.app` → **Open** → **Open**.
+
+Підпис Apple (~$99/рік) прибирає це попередження повністю.
 
 ## Intel Mac
 

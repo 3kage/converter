@@ -27,7 +27,10 @@ UNZIP
 ----------------------------------------
   The file is NOT broken. macOS blocks unsigned apps (common after Telegram).
 
-  Terminal (easiest):
+  Easiest: double-click **MAC_OPEN.command** (or ЗАПУСТИТИ.command / ОТКРЫТЬ.command)
+  in the same folder as VideoConverter.app. Click Open if macOS asks.
+
+  Terminal (manual):
   1. Open Terminal (Cmd+Space → type Terminal)
   2. Run (adjust path if needed):
 

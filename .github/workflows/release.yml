@@ -46,9 +46,13 @@ jobs:
         run: |
           cp "$GITHUB_WORKSPACE/MAC_ЗАПУСК.txt" dist/
           cp "$GITHUB_WORKSPACE/MAC_INSTALL_EN.txt" dist/
+          cp "$GITHUB_WORKSPACE/MAC_OPEN.command" dist/
+          cp "$GITHUB_WORKSPACE/ЗАПУСТИТИ.command" dist/
+          cp "$GITHUB_WORKSPACE/ОТКРЫТЬ.command" dist/
+          chmod +x dist/*.command
           cd dist
           ditto -c -k --sequesterRsrc --keepParent VideoConverter.app VideoConverter-mac.zip
-          zip -u VideoConverter-mac.zip MAC_ЗАПУСК.txt MAC_INSTALL_EN.txt
+          zip -u VideoConverter-mac.zip MAC_ЗАПУСК.txt MAC_INSTALL_EN.txt MAC_OPEN.command ЗАПУСТИТИ.command ОТКРЫТЬ.command
       - uses: actions/upload-artifact@v4
         with:
           name: release-macos
